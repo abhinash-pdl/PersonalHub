@@ -44,6 +44,75 @@ async function getAuthenticatedUser() {
   return user;
 }
 
+async function getAuthServerClient() {
+  const cookieStore = await cookies();
+  return createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        getAll() {
+          return cookieStore.getAll();
+        },
+        setAll(cookiesToSet) {
+          cookiesToSet.forEach(({ name, value, options }) => {
+            cookieStore.set(name, value, options);
+          });
+        },
+      },
+    },
+  );
+}
+
+/**
+ * Sign in with email and password using a server-backed Supabase client so the
+ * dashboard proxy can see the session cookies immediately.
+ */
+export async function signInAction(email: string, password: string) {
+  try {
+    const supabase = await getAuthServerClient();
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+
+    if (error) throw error;
+
+    return { success: true, user: data.user, session: data.session };
+  } catch (error) {
+    return { success: false, error: (error as Error).message, user: null, session: null };
+  }
+}
+
+/**
+ * Sign up with email and password using a server-backed Supabase client.
+ */
+export async function signUpAction(email: string, password: string) {
+  try {
+    const supabase = await getAuthServerClient();
+    const { data, error } = await supabase.auth.signUp({ email, password });
+
+    if (error) throw error;
+
+    return { success: true, user: data.user, session: data.session };
+  } catch (error) {
+    return { success: false, error: (error as Error).message, user: null, session: null };
+  }
+}
+
+/**
+ * Sign out and clear the server session cookies.
+ */
+export async function signOutAction() {
+  try {
+    const supabase = await getAuthServerClient();
+    const { error } = await supabase.auth.signOut();
+
+    if (error) throw error;
+
+    return { success: true };
+  } catch (error) {
+    return { success: false, error: (error as Error).message };
+  }
+}
+
 /**
  * Create a note (server-side validation)
  */

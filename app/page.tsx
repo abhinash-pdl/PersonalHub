@@ -36,113 +36,93 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="main" style={{ paddingTop: 0, minHeight: '100vh', display: 'flex', alignItems: 'center' }}>
+    <div className="main" style={{ paddingTop: 0, minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
       <div className="ambient ambient-1" />
       <div className="ambient ambient-2" />
       <div className="ambient ambient-3" />
 
-      <div style={{
-        display: 'grid',
-        gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))',
-        gap: '24px',
-        width: '100%',
-        alignItems: 'center',
-      }}>
-
-        {/* Left: hero */}
-        <div className="panel" style={{ position: 'static' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 24 }}>
-            <div className="nav-logo-icon" style={{ width: 48, height: 48, borderRadius: 12, fontSize: 22 }}>✨</div>
-            <div>
-              <p style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.12em', color: 'var(--text3)' }}>
-                PersonalHub
-              </p>
-              <p className="section-title" style={{ marginTop: 4 }}>Your private digital sanctuary</p>
-            </div>
-          </div>
-
-          <p style={{ color: 'var(--text3)', lineHeight: 1.6, fontSize: 14, marginBottom: 20 }}>
-            Keep notes, music, photos, and letters in one polished space — calm dark interface, instant access across devices.
-          </p>
-
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 20 }}>
-            {[
-              { emoji: '📝', title: 'Notes that feel fast',       body: 'Clean workspace, quick editing, zero clutter.' },
-              { emoji: '🎵', title: 'Music that stays handy',     body: 'Playback controls right where you need them.' },
-              { emoji: '🖼️', title: 'Photos with breathing room', body: 'Soft grids, better spacing, stronger contrast.' },
-              { emoji: '💌', title: 'Letters with presence',      body: 'A quieter layout for intentional writing.' },
-            ].map((item) => (
-              <div className="note-card" key={item.title} style={{ padding: 14 }}>
-                <div style={{ fontSize: 20, marginBottom: 8 }}>{item.emoji}</div>
-                <h4 style={{ marginBottom: 4 }}>{item.title}</h4>
-                <p>{item.body}</p>
-              </div>
-            ))}
-          </div>
-
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            <span className="badge badge-cyan">Secure sign-in</span>
-            <span className="badge badge-purple">Responsive by default</span>
+      <div className="panel" style={{ position: 'static', width: '100%', maxWidth: 460, padding: '28px 26px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 18 }}>
+          <div className="nav-logo-icon" style={{ width: 46, height: 46, borderRadius: 14, fontSize: 20 }}>✨</div>
+          <div>
+            <p style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.14em', color: 'var(--text3)', marginBottom: 4 }}>
+              PersonalHub
+            </p>
+            <h1 style={{ fontSize: 24, fontWeight: 800, color: 'var(--text)', letterSpacing: '-0.7px', lineHeight: 1.1 }}>
+              {isSignup ? 'Create your account' : 'Sign in to continue'}
+            </h1>
           </div>
         </div>
 
-        {/* Right: auth form */}
-        <div className="panel" style={{ position: 'static' }}>
-          <div className="panel-title">
-            {isSignup ? '🚀 Get started' : '👋 Welcome back'}
+        <p style={{ color: 'var(--text3)', fontSize: 14, marginBottom: 22, lineHeight: 1.6 }}>
+          {isSignup
+            ? 'Make a new account to keep notes, music, photos, and letters in one place.'
+            : 'Welcome back. Sign in to get back to your notes, music, photos, and letters.'}
+        </p>
+
+        {error && (
+          <div role="alert" style={{
+            marginBottom: 16,
+            padding: '12px 14px',
+            borderRadius: 12,
+            border: '1px solid rgba(239,68,68,0.22)',
+            background: 'rgba(239,68,68,0.08)',
+            color: '#fca5a5',
+            fontSize: 13,
+            lineHeight: 1.5,
+          }}>
+            {error}
           </div>
+        )}
 
-          <h2 style={{ fontSize: 22, fontWeight: 800, color: 'var(--text)', marginBottom: 8, letterSpacing: '-0.5px' }}>
-            {isSignup ? 'Create your account' : 'Sign in to continue'}
-          </h2>
-          <p style={{ color: 'var(--text3)', fontSize: 13, marginBottom: 24, lineHeight: 1.6 }}>
-            {isSignup
-              ? 'Create your secure hub and start organizing everything in one place.'
-              : 'Pick up where you left off with your notes, music, and photos.'}
-          </p>
-
-          {error && (
-            <div role="alert" style={{
-              marginBottom: 16, padding: '10px 14px', borderRadius: 10,
-              border: '1px solid rgba(239,68,68,0.2)', background: 'rgba(239,68,68,0.06)',
-              color: '#fca5a5', fontSize: 13,
-            }}>
-              {error}
-            </div>
-          )}
-
-          <form onSubmit={handleSubmit} style={{ display: 'grid', gap: 4 }}>
+        <form onSubmit={handleSubmit} style={{ display: 'grid', gap: 12 }}>
+          <div style={{ display: 'grid', gap: 6 }}>
             <label className="field-label">Email</label>
             <input
-              type="email" placeholder="you@example.com"
-              value={email} onChange={e => setEmail(e.target.value)}
-              required autoComplete="email" className="field-input"
+              type="email"
+              placeholder="you@example.com"
+              value={email}
+              onChange={e => setEmail(e.target.value)}
+              required
+              autoComplete="email"
+              className="field-input"
+              style={{ height: 46 }}
             />
+          </div>
+
+          <div style={{ display: 'grid', gap: 6 }}>
             <label className="field-label">Password</label>
             <input
-              type="password" placeholder="••••••••"
-              value={password} onChange={e => setPassword(e.target.value)}
-              required autoComplete={isSignup ? 'new-password' : 'current-password'}
+              type="password"
+              placeholder="••••••••"
+              value={password}
+              onChange={e => setPassword(e.target.value)}
+              required
+              autoComplete={isSignup ? 'new-password' : 'current-password'}
               className="field-input"
+              style={{ height: 46 }}
             />
-            <button
-              type="submit" disabled={loading}
-              className="btn-primary" style={{ marginTop: 8, opacity: loading ? 0.6 : 1 }}
-            >
-              {loading ? 'Please wait…' : isSignup ? 'Create account' : 'Sign in'}
-            </button>
-          </form>
+          </div>
 
-          <p style={{ marginTop: 20, textAlign: 'center', fontSize: 13, color: 'var(--text3)' }}>
-            {isSignup ? 'Already have an account?' : 'New here?'}{' '}
-            <button
-              type="button"
-              onClick={() => { setIsSignup(!isSignup); setError(''); }}
-              style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text)', fontWeight: 700, fontSize: 13, fontFamily: 'var(--font)' }}
-            >
-              {isSignup ? 'Sign in' : 'Create an account'}
-            </button>
-          </p>
+          <button
+            type="submit"
+            disabled={loading}
+            className="btn-primary"
+            style={{ marginTop: 6, opacity: loading ? 0.6 : 1, height: 48 }}
+          >
+            {loading ? 'Please wait…' : isSignup ? 'Create account' : 'Sign in'}
+          </button>
+        </form>
+
+        <div style={{ marginTop: 18, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, fontSize: 13, color: 'var(--text3)' }}>
+          <span>{isSignup ? 'Already have an account?' : 'New here?'}</span>
+          <button
+            type="button"
+            onClick={() => { setIsSignup(!isSignup); setError(''); }}
+            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text)', fontWeight: 700, fontSize: 13, fontFamily: 'var(--font)' }}
+          >
+            {isSignup ? 'Sign in' : 'Create an account'}
+          </button>
         </div>
       </div>
     </div>

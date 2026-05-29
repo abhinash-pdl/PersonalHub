@@ -2,7 +2,8 @@
 
 import React, { createContext, useContext, useEffect, useState, ReactNode } from 'react';
 import { User } from '@supabase/supabase-js';
-import { auth } from '@/lib/supabase';
+import { signInAction, signOutAction, signUpAction } from '@/app/actions';
+import { getSupabaseClient } from '@/lib/supabase';
 
 interface AuthContextType {
   user: User | null;
@@ -22,7 +23,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // Check current session
     const checkAuth = async () => {
       try {
-        const currentUser = await auth.getUser();
+        const { data } = await getSupabaseClient().auth.getUser();
+        const currentUser = data.user;
         setUser(currentUser);
       } catch (error) {
         console.error('Auth check error:', error);
@@ -34,8 +36,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     checkAuth();
 
     // Subscribe to auth changes
-    const { data } = auth.onAuthStateChange((authUser) => {
-      setUser(authUser);
+    const { data } = getSupabaseClient().auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user || null);
     });
 
     return () => {
@@ -48,9 +50,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const login = async (email: string, password: string) => {
     setLoading(true);
     try {
-      const { user: authUser, error } = await auth.login(email, password);
-      if (error) throw error;
-      setUser(authUser);
+      const result = await signInAction(email, password);
+      if (!result.success) throw new Error(result.error || 'Login failed');
+
+      if (result.session) {
+        await getSupabaseClient().auth.setSession({
+          access_token: result.session.access_token,
+          refresh_token: result.session.refresh_token,
+        });
+      }
+
+      setUser(result.user);
     } finally {
       setLoading(false);
     }
@@ -59,9 +69,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const signup = async (email: string, password: string) => {
     setLoading(true);
     try {
-      const { user: authUser, error } = await auth.signup(email, password);
-      if (error) throw error;
-      setUser(authUser);
+      const result = await signUpAction(email, password);
+      if (!result.success) throw new Error(result.error || 'Signup failed');
+
+      if (result.session) {
+        await getSupabaseClient().auth.setSession({
+          access_token: result.session.access_token,
+          refresh_token: result.session.refresh_token,
+        });
+      }
+
+      setUser(result.user);
     } finally {
       setLoading(false);
     }
@@ -70,8 +88,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const logout = async () => {
     setLoading(true);
     try {
-      const { error } = await auth.logout();
-      if (error) throw error;
+      const result = await signOutAction();
+      if (!result.success) throw new Error(result.error || 'Logout failed');
+
+      await getSupabaseClient().auth.signOut();
       setUser(null);
     } finally {
       setLoading(false);

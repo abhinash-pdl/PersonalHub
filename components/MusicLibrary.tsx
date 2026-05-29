@@ -1,8 +1,8 @@
 'use client';
 
-import React, { useMemo, useState } from 'react';
+import React, { useState } from 'react';
 import { useMusic } from '@/contexts/MusicContext';
-import { createMusicTrackAction } from '@/app/actions';
+import { createMusicTrackAction, deleteMusicTrackAction } from '@/app/actions';
 import { auth, musicStorage } from '@/lib/supabase';
 
 function formatDuration(seconds: number) {
@@ -12,23 +12,31 @@ function formatDuration(seconds: number) {
   return `${mins}:${secs < 10 ? '0' : ''}${secs}`;
 }
 
-export default function MusicLibrary() {
-  const { tracks, currentTrack, isPlaying, loading, error, playTrack, refreshTracks } = useMusic();
+function titleFromFileName(fileName: string, index: number) {
+  const withoutExtension = fileName.replace(/\.[^/.]+$/, '').trim();
+  return withoutExtension || `Track ${index + 1}`;
+}
 
-  const [title, setTitle] = useState('');
-  const [file, setFile] = useState<File | null>(null);
+export default function MusicLibrary() {
+  const { tracks, currentTrack, isPlaying, loading, error, playTrack, refreshTracks, stop } = useMusic();
+
+  const [files, setFiles] = useState<File[]>([]);
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState('');
+  const [inputKey, setInputKey] = useState(0);
 
   const hasTracks = tracks.length > 0;
 
-  const sortedTracks = useMemo(() => {
-    return [...tracks];
-  }, [tracks]);
+  const selectedFilesLabel =
+    files.length === 0
+      ? 'Choose one or more audio files'
+      : files.length === 1
+        ? files[0].name
+        : `${files.length} files selected`;
 
   const handleUpload = async () => {
-    if (!title.trim() || !file) {
-      setUploadError('Title and file are required');
+    if (files.length === 0) {
+      setUploadError('Choose one or more audio files to upload');
       return;
     }
 
@@ -39,12 +47,21 @@ export default function MusicLibrary() {
       const user = await auth.getUser();
       if (!user) throw new Error('Not authenticated');
 
-      const publicUrl = await musicStorage.upload(file, user.id);
-      const result = await createMusicTrackAction(title.trim(), 'Unknown Artist', publicUrl);
-      if (!result.success) throw new Error(result.error || 'Upload failed');
+      for (const [index, file] of files.entries()) {
+        const publicUrl = await musicStorage.upload(file, user.id);
+        const result = await createMusicTrackAction(
+          titleFromFileName(file.name, index),
+          'Unknown Artist',
+          publicUrl,
+        );
 
-      setTitle('');
-      setFile(null);
+        if (!result.success) {
+          throw new Error(result.error || `Upload failed for ${file.name}`);
+        }
+      }
+
+      setFiles([]);
+      setInputKey((value) => value + 1);
       await refreshTracks();
     } catch (err) {
       setUploadError(err instanceof Error ? err.message : 'Upload failed');
@@ -53,32 +70,49 @@ export default function MusicLibrary() {
     }
   };
 
+  const handleDeleteTrack = async (trackId: string) => {
+    if (!confirm('Delete this track?')) return;
+
+    try {
+      if (currentTrack?.id === trackId) {
+        stop();
+      }
+
+      const result = await deleteMusicTrackAction(trackId);
+      if (!result.success) {
+        throw new Error(result.error || 'Delete failed');
+      }
+
+      await refreshTracks();
+    } catch (err) {
+      setUploadError(err instanceof Error ? err.message : 'Delete failed');
+    }
+  };
+
   return (
     <div className="music-layout">
       <div className="panel">
         <div className="panel-title">☁️ Upload Track</div>
 
-        <label className="field-label">Track title</label>
-        <input
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-          placeholder="e.g. Night Drive"
-          className="field-input"
-        />
-
         <label className="field-label">Audio file</label>
         <input
+          key={inputKey}
           type="file"
           accept="audio/*"
-          onChange={(e) => setFile(e.target.files?.[0] || null)}
+          multiple
+          onChange={(e) => setFiles(Array.from(e.target.files ?? []))}
           className="field-input"
           style={{ padding: '8px 12px', fontSize: '12px', cursor: 'pointer' }}
         />
 
+        <p className="section-sub" style={{ marginBottom: '10px' }}>
+          {selectedFilesLabel}
+        </p>
+
         {uploadError ? <p className="section-sub" style={{ color: '#f87171', marginBottom: '10px' }}>{uploadError}</p> : null}
 
-        <button type="button" onClick={handleUpload} disabled={uploading || !title.trim() || !file} className="btn-primary">
-          {uploading ? 'Uploading...' : 'Upload Track'}
+        <button type="button" onClick={handleUpload} disabled={uploading || files.length === 0} className="btn-primary">
+          {uploading ? 'Uploading...' : files.length > 1 ? `Upload ${files.length} Tracks` : 'Upload Track'}
         </button>
 
         {currentTrack ? (
@@ -111,13 +145,20 @@ export default function MusicLibrary() {
 
         {!loading && hasTracks ? (
           <div className="track-list">
-            {sortedTracks.map((track, index) => {
+            {tracks.map((track, index) => {
               const active = currentTrack?.id === track.id;
               return (
-                <button
+                <div
                   key={track.id}
-                  type="button"
+                  role="button"
+                  tabIndex={0}
                   onClick={() => playTrack(track)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      event.preventDefault();
+                      playTrack(track);
+                    }
+                  }}
                   className={`track-card${active ? ' playing' : ''}`}
                 >
                   <div className="track-num">
@@ -132,7 +173,18 @@ export default function MusicLibrary() {
                     <span>{track.artist || 'Unknown Artist'}</span>
                   </div>
                   <span className="track-dur">{formatDuration(track.duration ?? 0)}</span>
-                </button>
+                  <button
+                    type="button"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      void handleDeleteTrack(track.id);
+                    }}
+                    className="btn-primary rose"
+                    style={{ width: 'auto', padding: '6px 10px', fontSize: '11px', flexShrink: 0 }}
+                  >
+                    Delete
+                  </button>
+                </div>
               );
             })}
           </div>
