@@ -70,6 +70,28 @@ async function selectWithOrder(
   return finalRes.data || [];
 }
 
+function safeStorageSegment(value: string) {
+  return value
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-zA-Z0-9._-]+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .toLowerCase();
+}
+
+function buildMusicStorageKey(userId: string, fileName: string) {
+  const extensionMatch = fileName.match(/\.[^./\\]+$/);
+  const extension = extensionMatch ? extensionMatch[0].toLowerCase() : '';
+  const baseName = extensionMatch ? fileName.slice(0, -extension.length) : fileName;
+  const safeBaseName = safeStorageSegment(baseName) || 'track';
+  const uniquePart = typeof crypto !== 'undefined' && 'randomUUID' in crypto
+    ? crypto.randomUUID()
+    : `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+
+  return `${safeStorageSegment(userId)}/${Date.now()}_${uniquePart}_${safeBaseName}${extension}`;
+}
+
 /**
  * Authentication Functions
  */
@@ -246,7 +268,7 @@ export const music = {
  */
 export const musicStorage = {
   async upload(file: File, userId: string): Promise<string> {
-    const fileName = `${userId}/${Date.now()}_${file.name}`;
+    const fileName = buildMusicStorageKey(userId, file.name);
     const { error } = await getSupabaseClient().storage.from(BUCKET_MUSIC).upload(fileName, file);
     if (error) throw new Error(`Failed to upload music file: ${error.message}`);
 
