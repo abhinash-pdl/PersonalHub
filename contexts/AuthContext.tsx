@@ -19,15 +19,34 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
 
+  const clearLocalSession = async () => {
+    try {
+      await getSupabaseClient().auth.signOut({ scope: 'local' });
+    } catch {
+      // Ignore cleanup failures when the browser session is already invalid.
+    }
+  };
+
   useEffect(() => {
     // Check current session
     const checkAuth = async () => {
       try {
-        const { data } = await getSupabaseClient().auth.getUser();
-        const currentUser = data.user;
-        setUser(currentUser);
+        const { data, error } = await getSupabaseClient().auth.getUser();
+        if (error && (error.message.includes('Invalid Refresh Token') || error.message.includes('Refresh Token Not Found'))) {
+          await clearLocalSession();
+          setUser(null);
+          return;
+        }
+
+        setUser(data.user || null);
       } catch (error) {
-        console.error('Auth check error:', error);
+        const message = String((error as { message?: unknown } | null | undefined)?.message || error);
+        if (message.includes('Invalid Refresh Token') || message.includes('Refresh Token Not Found')) {
+          await clearLocalSession();
+          setUser(null);
+        } else {
+          console.error('Auth check error:', error);
+        }
       } finally {
         setLoading(false);
       }
@@ -91,7 +110,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const result = await signOutAction();
       if (!result.success) throw new Error(result.error || 'Logout failed');
 
-      await getSupabaseClient().auth.signOut();
+      await clearLocalSession();
       setUser(null);
     } finally {
       setLoading(false);

@@ -1,10 +1,20 @@
-import React, { Suspense } from 'react';
+import React from 'react';
+import nextDynamic from 'next/dynamic';
 import { fetchGalleryFolders, fetchAllGalleryImages } from '@/lib/server-data';
-import { GalleryWorkspace } from '@/components/GalleryManager';
 
 export const dynamic = 'force-dynamic';
 
+const GalleryWorkspace = nextDynamic(
+  () => import('@/components/GalleryManager').then((mod) => mod.GalleryWorkspace),
+  {
+    loading: () => <div className="empty-state"><p>Loading your gallery...</p></div>,
+  },
+);
+
 export default async function GalleryPage() {
+  const folders = await fetchGalleryFolders();
+  const images = await fetchAllGalleryImages();
+
   return (
     <div>
       <div className="section-header">
@@ -14,18 +24,7 @@ export default async function GalleryPage() {
           <div className="section-sub">Organize and view your photos</div>
         </div>
       </div>
-      <Suspense fallback={<div className="empty-state"><p>Loading your gallery...</p></div>}>
-        <GalleryContent />
-      </Suspense>
+      <GalleryWorkspace folders={folders} images={images} />
     </div>
-  );
-}
-
-async function GalleryContent() {
-  const folders = await fetchGalleryFolders();
-  const images = await fetchAllGalleryImages();
-
-  return (
-    <GalleryWorkspace folders={folders} images={images} />
   );
 }

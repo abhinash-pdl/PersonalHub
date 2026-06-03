@@ -6,6 +6,33 @@ const BUCKET_GALLERY = 'gallery-images';
 
 let supabaseClient: SupabaseClient | null = null;
 
+function isInvalidRefreshTokenError(error: unknown) {
+  const message = String((error as { message?: unknown } | null | undefined)?.message || error);
+  return message.includes('Invalid Refresh Token') || message.includes('Refresh Token Not Found');
+}
+
+async function clearLocalSession() {
+  try {
+    await getSupabaseClient().auth.signOut({ scope: 'local' });
+  } catch {
+    // The browser session is already unusable; ignore cleanup errors.
+  }
+}
+
+async function getSafeBrowserUser(): Promise<User | null> {
+  try {
+    const { data } = await getSupabaseClient().auth.getUser();
+    return data.user || null;
+  } catch (error) {
+    if (isInvalidRefreshTokenError(error)) {
+      await clearLocalSession();
+      return null;
+    }
+
+    throw error;
+  }
+}
+
 export const getSupabaseClient = (): SupabaseClient => {
   if (!supabaseClient) {
     const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -112,8 +139,7 @@ export const auth = {
   },
 
   async getUser(): Promise<User | null> {
-    const { data } = await getSupabaseClient().auth.getUser();
-    return data.user || null;
+    return getSafeBrowserUser();
   },
 
   async getSession() {
@@ -133,7 +159,7 @@ export const auth = {
  */
 export const notes = {
   async getAll() {
-    const { data: { user } } = await getSupabaseClient().auth.getUser();
+    const user = await getSafeBrowserUser();
     if (!user) throw new Error('Not authenticated');
 
     const data = await selectWithOrder('notes', '*', [['user_id', user.id]]);
@@ -141,7 +167,7 @@ export const notes = {
   },
 
   async create(title: string, content: string) {
-    const { data: { user } } = await getSupabaseClient().auth.getUser();
+    const user = await getSafeBrowserUser();
     if (!user) throw new Error('Not authenticated');
 
     const { data, error } = await getSupabaseClient()
@@ -154,7 +180,7 @@ export const notes = {
   },
 
   async update(id: string, title: string, content: string) {
-    const { data: { user } } = await getSupabaseClient().auth.getUser();
+    const user = await getSafeBrowserUser();
     if (!user) throw new Error('Not authenticated');
 
     const { data, error } = await getSupabaseClient()
@@ -169,7 +195,7 @@ export const notes = {
   },
 
   async delete(id: string) {
-    const { data: { user } } = await getSupabaseClient().auth.getUser();
+    const user = await getSafeBrowserUser();
     if (!user) throw new Error('Not authenticated');
 
     const { error } = await getSupabaseClient()
@@ -201,7 +227,7 @@ export const notes = {
  */
 export const music = {
   async getAll() {
-    const { data: { user } } = await getSupabaseClient().auth.getUser();
+    const user = await getSafeBrowserUser();
     if (!user) throw new Error('Not authenticated');
 
     const data = await selectWithOrder('music_tracks', '*', [['user_id', user.id]]);
@@ -209,7 +235,7 @@ export const music = {
   },
 
   async create(title: string, artist: string, fileUrl: string) {
-    const { data: { user } } = await getSupabaseClient().auth.getUser();
+    const user = await getSafeBrowserUser();
     if (!user) throw new Error('Not authenticated');
 
     // Try inserting with the expected `file_url` column, but gracefully
@@ -236,7 +262,7 @@ export const music = {
   },
 
   async delete(id: string) {
-    const { data: { user } } = await getSupabaseClient().auth.getUser();
+    const user = await getSafeBrowserUser();
     if (!user) throw new Error('Not authenticated');
 
     const { error } = await getSupabaseClient()
@@ -289,7 +315,7 @@ export const musicStorage = {
  */
 export const gallery = {
   async getFolders() {
-    const { data: { user } } = await getSupabaseClient().auth.getUser();
+    const user = await getSafeBrowserUser();
     if (!user) throw new Error('Not authenticated');
 
     const data = await selectWithOrder('gallery_folders', '*', [['user_id', user.id]]);
@@ -297,7 +323,7 @@ export const gallery = {
   },
 
   async createFolder(name: string) {
-    const { data: { user } } = await getSupabaseClient().auth.getUser();
+    const user = await getSafeBrowserUser();
     if (!user) throw new Error('Not authenticated');
 
     const { data, error } = await getSupabaseClient()
@@ -310,7 +336,7 @@ export const gallery = {
   },
 
   async deleteFolder(id: string) {
-    const { data: { user } } = await getSupabaseClient().auth.getUser();
+    const user = await getSafeBrowserUser();
     if (!user) throw new Error('Not authenticated');
 
     const { error } = await getSupabaseClient()
@@ -322,7 +348,7 @@ export const gallery = {
   },
 
   async getImages(folderId: string) {
-    const { data: { user } } = await getSupabaseClient().auth.getUser();
+    const user = await getSafeBrowserUser();
     if (!user) throw new Error('Not authenticated');
 
     const data = await selectWithOrder('gallery_images', '*', [['folder_id', folderId], ['user_id', user.id]]);
@@ -348,7 +374,7 @@ export const gallery = {
   },
 
   async createImage(folderId: string, title: string, imageUrl: string) {
-    const { data: { user } } = await getSupabaseClient().auth.getUser();
+    const user = await getSafeBrowserUser();
     if (!user) throw new Error('Not authenticated');
 
     // Attempt inserts that cover common schema variants. If a column is missing
@@ -395,7 +421,7 @@ export const gallery = {
   },
 
   async deleteImage(id: string) {
-    const { data: { user } } = await getSupabaseClient().auth.getUser();
+    const user = await getSafeBrowserUser();
     if (!user) throw new Error('Not authenticated');
 
     const { error } = await getSupabaseClient()
@@ -464,7 +490,7 @@ export const galleryStorage = {
  */
 export const letters = {
   async getAll() {
-    const { data: { user } } = await getSupabaseClient().auth.getUser();
+    const user = await getSafeBrowserUser();
     if (!user) throw new Error('Not authenticated');
 
     const data = await selectWithOrder('letters', '*', [['user_id', user.id]]);
@@ -472,7 +498,7 @@ export const letters = {
   },
 
   async create(title: string, content: string, recipient?: string) {
-    const { data: { user } } = await getSupabaseClient().auth.getUser();
+    const user = await getSafeBrowserUser();
     if (!user) throw new Error('Not authenticated');
 
     const { data, error } = await getSupabaseClient()
@@ -485,7 +511,7 @@ export const letters = {
   },
 
   async update(id: string, title: string, content: string, recipient?: string) {
-    const { data: { user } } = await getSupabaseClient().auth.getUser();
+    const user = await getSafeBrowserUser();
     if (!user) throw new Error('Not authenticated');
 
     const { data, error } = await getSupabaseClient()
@@ -500,7 +526,7 @@ export const letters = {
   },
 
   async delete(id: string) {
-    const { data: { user } } = await getSupabaseClient().auth.getUser();
+    const user = await getSafeBrowserUser();
     if (!user) throw new Error('Not authenticated');
 
     const { error } = await getSupabaseClient()

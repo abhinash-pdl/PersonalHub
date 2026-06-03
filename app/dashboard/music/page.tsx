@@ -1,5 +1,9 @@
 import React from 'react';
-import MusicLibrary from '@/components/MusicLibrary';
+import dynamic from 'next/dynamic';
+
+const MusicLibrary = dynamic(() => import('@/components/MusicLibrary'), {
+  loading: () => <div className="empty-state"><p>Loading your music...</p></div>,
+});
 
 export default async function MusicPage() {
   return (

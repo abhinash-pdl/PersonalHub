@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { useMusic } from '@/contexts/MusicContext';
+import { useMusic, type MusicTrack } from '@/contexts/MusicContext';
 import { createMusicTrackAction, deleteMusicTrackAction } from '@/app/actions';
 import { auth, musicStorage } from '@/lib/supabase';
 
@@ -18,12 +18,13 @@ function titleFromFileName(fileName: string, index: number) {
 }
 
 export default function MusicLibrary() {
-  const { tracks, currentTrack, isPlaying, loading, error, playTrack, refreshTracks, stop } = useMusic();
+  const { tracks, currentTrack, isPlaying, loading, error, playTrack, refreshTracks, upsertTrack, stop } = useMusic();
 
   const [files, setFiles] = useState<File[]>([]);
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState('');
   const [inputKey, setInputKey] = useState(0);
+  const [uploadProgress, setUploadProgress] = useState<{ currentIndex: number; uploaded: number; total: number; fileName: string } | null>(null);
 
   const hasTracks = tracks.length > 0;
 
@@ -42,12 +43,14 @@ export default function MusicLibrary() {
 
     setUploading(true);
     setUploadError('');
+    setUploadProgress({ currentIndex: 1, uploaded: 0, total: files.length, fileName: files[0]?.name || '' });
 
     try {
       const user = await auth.getUser();
       if (!user) throw new Error('Not authenticated');
 
       for (const [index, file] of files.entries()) {
+        setUploadProgress({ currentIndex: index + 1, uploaded: index, total: files.length, fileName: file.name });
         const publicUrl = await musicStorage.upload(file, user.id);
         const result = await createMusicTrackAction(
           titleFromFileName(file.name, index),
@@ -58,14 +61,29 @@ export default function MusicLibrary() {
         if (!result.success) {
           throw new Error(result.error || `Upload failed for ${file.name}`);
         }
+
+        setUploadProgress({ currentIndex: index + 1, uploaded: index + 1, total: files.length, fileName: file.name });
+
+        const createdRow = Array.isArray(result.data) ? result.data[0] : result.data;
+        const createdTrack: MusicTrack = {
+          id: String((createdRow as { id?: unknown } | null | undefined)?.id || `${Date.now()}-${index}`),
+          title: String((createdRow as { title?: unknown } | null | undefined)?.title || titleFromFileName(file.name, index)),
+          artist: String((createdRow as { artist?: unknown } | null | undefined)?.artist || 'Unknown Artist'),
+          file_url: String((createdRow as { file_url?: unknown; url?: unknown; filePath?: unknown } | null | undefined)?.file_url || (createdRow as { url?: unknown } | null | undefined)?.url || (createdRow as { filePath?: unknown } | null | undefined)?.filePath || publicUrl),
+          duration: Number((createdRow as { duration?: unknown } | null | undefined)?.duration) || 0,
+          created_at: String((createdRow as { created_at?: unknown; uploaded_at?: unknown } | null | undefined)?.created_at || (createdRow as { uploaded_at?: unknown } | null | undefined)?.uploaded_at || new Date().toISOString()),
+        };
+
+        upsertTrack(createdTrack);
+        void refreshTracks();
       }
 
       setFiles([]);
       setInputKey((value) => value + 1);
-      await refreshTracks();
     } catch (err) {
       setUploadError(err instanceof Error ? err.message : 'Upload failed');
     } finally {
+      setUploadProgress(null);
       setUploading(false);
     }
   };
@@ -83,7 +101,7 @@ export default function MusicLibrary() {
         throw new Error(result.error || 'Delete failed');
       }
 
-      await refreshTracks();
+      void refreshTracks();
     } catch (err) {
       setUploadError(err instanceof Error ? err.message : 'Delete failed');
     }
@@ -111,6 +129,18 @@ export default function MusicLibrary() {
 
         {uploadError ? <p className="section-sub" style={{ color: '#f87171', marginBottom: '10px' }}>{uploadError}</p> : null}
 
+        {uploadProgress ? (
+          <div style={{ marginBottom: '10px', padding: '10px 12px', borderRadius: 'var(--radius-sm)', border: '1px solid rgba(168,85,247,0.2)', background: 'rgba(168,85,247,0.08)' }}>
+            <p style={{ fontSize: '12px', fontWeight: 600, color: '#c084fc', marginBottom: '4px' }}>
+              Uploading {uploadProgress.currentIndex}/{uploadProgress.total}
+            </p>
+            <p style={{ fontSize: '12px', color: 'var(--text2)' }}>{uploadProgress.fileName}</p>
+            <p style={{ fontSize: '11px', color: 'var(--text3)', marginTop: '4px' }}>
+              {uploadProgress.uploaded}/{uploadProgress.total} added to playlist
+            </p>
+          </div>
+        ) : null}
+
         <button type="button" onClick={handleUpload} disabled={uploading || files.length === 0} className="btn-primary">
           {uploading ? 'Uploading...' : files.length > 1 ? `Upload ${files.length} Tracks` : 'Upload Track'}
         </button>
@@ -132,10 +162,21 @@ export default function MusicLibrary() {
           <span className="badge badge-purple">{tracks.length} tracks</span>
         </div>
 
-        {loading ? <div className="empty-state"><p>Loading your music...</p></div> : null}
+        {loading && !uploading ? <div className="empty-state"><p>Loading your music...</p></div> : null}
         {!loading && (error || uploadError) ? <div className="empty-state"><p>{error || uploadError}</p></div> : null}
 
-        {!loading && !hasTracks && !error ? (
+        {uploading ? (
+          <div className="empty-state" style={{ marginBottom: '12px' }}>
+            <p>Refreshing playlist live</p>
+            <span>
+              {uploadProgress
+                ? `${uploadProgress.uploaded}/${uploadProgress.total} uploaded`
+                : 'Preparing upload...'}
+            </span>
+          </div>
+        ) : null}
+
+        {!loading && !uploading && !hasTracks && !error ? (
           <div className="empty-state">
             <div className="empty-icon">🎵</div>
             <p>No music yet</p>

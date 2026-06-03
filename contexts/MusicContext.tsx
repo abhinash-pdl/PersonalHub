@@ -50,6 +50,7 @@ interface MusicContextType {
   next: () => void;
   prev: () => void;
   refreshTracks: () => Promise<void>;
+  upsertTrack: (track: MusicTrack) => void;
   stop: () => void;
 }
 
@@ -84,15 +85,15 @@ export function MusicProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  const upsertTrack = useCallback((track: MusicTrack) => {
+    setTracks((currentTracks) => [
+      track,
+      ...currentTracks.filter((existingTrack) => existingTrack.id !== track.id),
+    ]);
+  }, []);
+
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     refreshTracks();
-    const sub = music.subscribe(() => {
-      refreshTracks();
-    });
-    return () => {
-      void sub?.unsubscribe?.();
-    };
   }, [refreshTracks]);
 
   useEffect(() => {
@@ -289,6 +290,7 @@ export function MusicProvider({ children }: { children: ReactNode }) {
     next,
     prev,
     refreshTracks,
+    upsertTrack,
     stop,
   };
 
