@@ -1,6 +1,6 @@
 'use client';
 
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
@@ -25,12 +25,18 @@ export default function Navbar() {
   const router = useRouter();
   const { user, logout } = useAuth();
   const { currentTrack, isPlaying, currentTime, duration, togglePlay, prev, next, seek } = useMusic();
+  const [menuOpen, setMenuOpen] = useState(false);
 
   const progress = duration > 0 ? Math.min((currentTime / duration) * 100, 100) : 0;
+
+  useEffect(() => {
+    setMenuOpen(false);
+  }, [pathname]);
 
   const handleLogout = async () => {
     try {
       await logout();
+      setMenuOpen(false);
       router.push('/');
     } catch (error) {
       console.error('Logout failed:', error);
@@ -45,6 +51,18 @@ export default function Navbar() {
           <span>PersonalHub</span>
         </Link>
 
+        <button
+          type="button"
+          className="nav-menu-toggle"
+          aria-label={menuOpen ? 'Close navigation menu' : 'Open navigation menu'}
+          aria-expanded={menuOpen}
+          onClick={() => setMenuOpen((value) => !value)}
+        >
+          <span />
+          <span />
+          <span />
+        </button>
+
         <div className="nav-links" role="navigation" aria-label="Dashboard sections">
           {navLinks.map((link) => {
             const active = pathname === link.href;
@@ -54,6 +72,7 @@ export default function Navbar() {
                 href={link.href}
                 className={`nav-link${active ? ' active' : ''}`}
                 aria-current={active ? 'page' : undefined}
+                onClick={() => setMenuOpen(false)}
               >
                 <div className="nav-dot" />
                 <span>
@@ -72,6 +91,38 @@ export default function Navbar() {
           <button type="button" className="btn-logout" onClick={handleLogout}>
             ⬆ Logout
           </button>
+        </div>
+
+        <div className={`nav-mobile-panel${menuOpen ? ' open' : ''}`}>
+          <div className="nav-mobile-links" role="navigation" aria-label="Dashboard sections">
+            {navLinks.map((link) => {
+              const active = pathname === link.href;
+              return (
+                <Link
+                  key={link.href}
+                  href={link.href}
+                  className={`nav-link${active ? ' active' : ''}`}
+                  aria-current={active ? 'page' : undefined}
+                  onClick={() => setMenuOpen(false)}
+                >
+                  <div className="nav-dot" />
+                  <span>
+                    {link.icon} {link.label}
+                  </span>
+                </Link>
+              );
+            })}
+          </div>
+
+          <div className="nav-mobile-meta">
+            <div className="nav-user">
+              <div className="nav-avatar">{(user?.email || 'U').slice(0, 1).toUpperCase()}</div>
+              <span>{user?.email || 'user@example.com'}</span>
+            </div>
+            <button type="button" className="btn-logout" onClick={handleLogout}>
+              ⬆ Logout
+            </button>
+          </div>
         </div>
       </nav>
 
