@@ -2,6 +2,8 @@ import React from 'react';
 import { GalleryWorkspace } from '@/components/GalleryManager';
 import { fetchGalleryFolders, fetchAllGalleryImages } from '@/lib/server-data';
 
+export const dynamic = 'force-dynamic';
+
 export default async function GalleryPage() {
   const folders = await fetchGalleryFolders();
   const images = await fetchAllGalleryImages();

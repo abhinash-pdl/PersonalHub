@@ -2,6 +2,8 @@ import React, { Suspense } from 'react';
 import { fetchLetters } from '@/lib/server-data';
 import { LetterCard, LetterEditor } from '@/components/LettersView';
 
+export const dynamic = 'force-dynamic';
+
 export default async function LettersPage() {
   return (
     <div>

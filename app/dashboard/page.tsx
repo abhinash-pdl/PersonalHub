@@ -2,6 +2,8 @@ import React from 'react';
 import Link from 'next/link';
 import { fetchDashboardCounts, getCurrentUserEmail } from '@/lib/server-data';
 
+export const dynamic = 'force-dynamic';
+
 export default async function DashboardPage() {
   const [userEmail, counts] = await Promise.all([
     getCurrentUserEmail(),
