@@ -42,25 +42,25 @@ function ResetForm() {
   return (
     <div className="main" style={{ paddingTop: 0, minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
       <div className="panel" style={{ position: 'static', width: '100%', maxWidth: 460, padding: '28px 26px' }}>
-        <p style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.14em', color: 'var(--text3)', marginBottom: 4 }}>
+        <p style={{ fontSize: 13, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.14em', color: 'var(--text3)', marginBottom: 4 }}>
           PersonalHub
         </p>
-        <h1 style={{ fontSize: 24, fontWeight: 800, color: 'var(--text)', letterSpacing: '-0.7px', lineHeight: 1.1, marginBottom: 8 }}>
+        <h1 style={{ fontSize: 26, fontWeight: 800, color: 'var(--text)', letterSpacing: '-0.7px', lineHeight: 1.1, marginBottom: 8 }}>
           Choose a new password
         </h1>
-        <p style={{ color: 'var(--text3)', fontSize: 14, marginBottom: 22, lineHeight: 1.6 }}>
+        <p style={{ color: 'var(--text3)', fontSize: 16, marginBottom: 22, lineHeight: 1.6 }}>
           {user?.email ? `Signed in as ${user.email}.` : 'Enter and confirm your new password below.'}
         </p>
 
         {error && (
-          <div role="alert" style={{ marginBottom: 16, padding: '12px 14px', borderRadius: 12, border: '1px solid #ffffff44', background: 'rgba(255,255,255,0.04)', color: 'var(--text)', fontSize: 13, lineHeight: 1.5 }}>
+          <div role="alert" style={{ marginBottom: 16, padding: '12px 14px', borderRadius: 12, border: '1px solid #ffffff44', background: 'rgba(255,255,255,0.04)', color: 'var(--text)', fontSize: 15, lineHeight: 1.5 }}>
             {error}
           </div>
         )}
 
         {done ? (
           <div>
-            <div role="status" style={{ marginBottom: 16, padding: '12px 14px', borderRadius: 12, border: '1px solid var(--border2)', background: 'rgba(255,255,255,0.04)', color: 'var(--text)', fontSize: 13, lineHeight: 1.5 }}>
+            <div role="status" style={{ marginBottom: 16, padding: '12px 14px', borderRadius: 12, border: '1px solid var(--border2)', background: 'rgba(255,255,255,0.04)', color: 'var(--text)', fontSize: 15, lineHeight: 1.5 }}>
               Password updated. You can now sign in with your new password.
             </div>
             <button type="button" className="btn-primary" onClick={() => router.push(user ? '/dashboard' : '/')}>
@@ -103,7 +103,7 @@ function ResetForm() {
           </form>
         )}
 
-        <div style={{ marginTop: 18, textAlign: 'center', fontSize: 13 }}>
+        <div style={{ marginTop: 18, textAlign: 'center', fontSize: 15 }}>
           <Link href="/" style={{ color: 'var(--text2)', fontWeight: 600 }}>Back to sign in</Link>
         </div>
       </div>

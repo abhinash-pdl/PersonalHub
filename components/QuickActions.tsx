@@ -1,8 +1,32 @@
 'use client';
 
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { usePathname } from 'next/navigation';
 import { emitMobileAction } from '@/lib/mobile-actions';
+
+/**
+ * True only on touch-driven devices. Used as a JS gate (in addition to the
+ * CSS gates) so FABs can never render on mouse desktops — even in a narrow
+ * or zoomed window where width queries match. Starts false so SSR and the
+ * first paint never flash a FAB on desktop.
+ */
+function useIsTouchDevice() {
+  const [isTouch, setIsTouch] = useState(false);
+  useEffect(() => {
+    const mqHoverNone = window.matchMedia('(hover: none)');
+    const mqCoarse = window.matchMedia('(pointer: coarse)');
+    const update = () =>
+      setIsTouch(mqHoverNone.matches || mqCoarse.matches || 'ontouchstart' in window);
+    update();
+    mqHoverNone.addEventListener('change', update);
+    mqCoarse.addEventListener('change', update);
+    return () => {
+      mqHoverNone.removeEventListener('change', update);
+      mqCoarse.removeEventListener('change', update);
+    };
+  }, []);
+  return isTouch;
+}
 
 /**
  * Mobile-only contextual FAB (single action per page, never a wall of buttons):
@@ -15,6 +39,10 @@ import { emitMobileAction } from '@/lib/mobile-actions';
  */
 export default function QuickActions() {
   const pathname = usePathname();
+  const isTouch = useIsTouchDevice();
+
+  // Desktop web: no FABs, ever. Creation lives in the sidebar panels there.
+  if (!isTouch) return null;
 
   const fire = (type: 'composer:note' | 'composer:music' | 'composer:letter' | 'composer:folder' | 'gallery:camera' | 'gallery:upload') => () =>
     emitMobileAction(type);

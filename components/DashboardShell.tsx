@@ -14,6 +14,9 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
   const router = useRouter();
 
   useEffect(() => {
+    // Build stamp: proves which bundle the browser is actually running.
+    // If you don't see this exact line in the console, you're on stale code.
+    console.info('[PersonalHub] build 2026-09-04-ui-07 (centered viewer, pointer-gated FABs)');
     for (const link of dashboardNavLinks) {
       router.prefetch(link.href);
     }

@@ -1,6 +1,7 @@
 'use client';
 
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState, ReactNode } from 'react';
+import { useRouter } from 'next/navigation';
 import { User } from '@supabase/supabase-js';
 import { requestPasswordResetAction, signInAction, signOutAction, signUpAction, updatePasswordAction } from '@/app/actions';
 import { getCachedUser, getSupabaseClient, invalidateUserCache, withAuthRetry } from '@/lib/supabase';
@@ -20,6 +21,7 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
+  const router = useRouter();
 
   const clearLocalSession = useCallback(async () => {
     try {
@@ -35,13 +37,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       try {
         // Single shared cached lookup with lock retry — avoids Navigator
         // LockManager contention with Music/Dashboard providers.
+        // getCachedUser() returns null ONLY on confirmed sign-out (it never
+        // throws for missing/invalid sessions), so a null here is safe to
+        // act on: leave protected routes for the login page.
         const cached = await getCachedUser();
-        if (!cancelled) setUser(cached);
+        if (cancelled) return;
+        setUser(cached);
+        if (!cached && window.location.pathname.startsWith('/dashboard')) {
+          router.push('/');
+        }
       } catch (error) {
         const message = String((error as { message?: unknown } | null | undefined)?.message || error);
         if (message.includes('Invalid Refresh Token') || message.includes('Refresh Token Not Found')) {
           await clearLocalSession();
-          if (!cancelled) setUser(null);
+          if (cancelled) return;
+          setUser(null);
+          if (window.location.pathname.startsWith('/dashboard')) {
+            router.push('/');
+          }
         } else {
           console.error('Auth check error:', error);
         }
@@ -52,15 +65,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     checkAuth();
 
-    // Keep in sync without extra getUser() calls
+    // Keep in sync without extra getUser() calls. A SIGNED_OUT event with no
+    // session is authoritative — leave protected routes for the login page.
     const { data: { subscription } } = getSupabaseClient().auth.onAuthStateChange((_event, session) => {
-      if (!cancelled) setUser(session?.user ?? null);
+      if (cancelled) return;
+      setUser(session?.user ?? null);
+      if (!session?.user && window.location.pathname.startsWith('/dashboard')) {
+        router.push('/');
+      }
     });
     return () => {
       cancelled = true;
       subscription.unsubscribe();
     };
-  }, [clearLocalSession]);
+  }, [clearLocalSession, router]);
 
   const login = useCallback(async (email: string, password: string) => {
     setLoading(true);

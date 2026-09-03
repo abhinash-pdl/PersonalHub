@@ -204,11 +204,10 @@ export function LetterCard({ letter, onDelete }: LetterCardProps) {
       if (!result.success) {
         throw new Error(result.error || 'Failed to update letter');
       }
-      letter.title = recipientName.trim();
-      letter.recipient = recipientName.trim();
-      letter.recipient_email = recipientEmail.trim() || '';
-      letter.content = content;
       setEditing(false);
+      // Close so reopening reads fresh props (local edit state is stale after save)
+      setExpanded(false);
+      onDelete?.();
       router.refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to update letter');

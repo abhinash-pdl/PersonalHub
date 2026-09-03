@@ -120,7 +120,7 @@ export function MusicUploadForm({ onDone }: { onDone?: () => void }) {
           setFiles(selected);
         }}
         className="field-input"
-        style={{ padding: '8px 12px', fontSize: '12px', cursor: 'pointer' }}
+        style={{ padding: '8px 12px', fontSize: '14px', cursor: 'pointer' }}
       />
 
       <p className="section-sub" style={{ marginBottom: '10px' }}>
@@ -131,11 +131,11 @@ export function MusicUploadForm({ onDone }: { onDone?: () => void }) {
 
       {uploadProgress ? (
         <div style={{ marginBottom: '10px', padding: '10px 12px', borderRadius: 'var(--radius-sm)', border: '1px solid #ffffff44', background: 'rgba(255,255,255,0.04)' }}>
-          <p style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text)', marginBottom: '4px' }}>
+          <p style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text)', marginBottom: '4px' }}>
             Uploading {uploadProgress.currentIndex}/{uploadProgress.total}
           </p>
-          <p style={{ fontSize: '12px', color: 'var(--text2)' }}>{uploadProgress.fileName}</p>
-          <p style={{ fontSize: '11px', color: 'var(--text3)', marginTop: '4px' }}>
+          <p style={{ fontSize: '14px', color: 'var(--text2)' }}>{uploadProgress.fileName}</p>
+          <p style={{ fontSize: '13px', color: 'var(--text3)', marginTop: '4px' }}>
             {uploadProgress.uploaded}/{uploadProgress.total} added to playlist
           </p>
         </div>
@@ -211,9 +211,9 @@ export default function MusicLibrary() {
 
         {currentTrack ? (
           <div style={{ marginTop: '16px', padding: '14px', borderRadius: 'var(--radius-sm)', background: 'rgba(255,255,255,0.04)', border: '1px solid #ffffff44' }}>
-            <p style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text)', marginBottom: '4px' }}>Now Playing</p>
-            <p style={{ fontSize: '13px', color: 'var(--text2)' }}>{currentTrack.title}</p>
-            <p style={{ fontSize: '11px', color: 'var(--text3)', marginTop: '4px' }}>
+            <p style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text)', marginBottom: '4px' }}>Now Playing</p>
+            <p style={{ fontSize: '15px', color: 'var(--text2)' }}>{currentTrack.title}</p>
+            <p style={{ fontSize: '13px', color: 'var(--text3)', marginTop: '4px' }}>
               Use the player above to control playback from any page
             </p>
           </div>
@@ -222,7 +222,7 @@ export default function MusicLibrary() {
 
       <div>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
-          <span style={{ fontSize: '15px', fontWeight: 600, color: 'var(--text)' }}>Your tracks</span>
+          <span style={{ fontSize: '17px', fontWeight: 600, color: 'var(--text)' }}>Your tracks</span>
           <span className="badge badge-purple">{tracks.length} tracks</span>
         </div>
 

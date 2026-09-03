@@ -28,7 +28,7 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
             animation: 'spin 1s linear infinite',
             margin: '0 auto 16px'
           }}></div>
-          <p style={{ color: 'var(--text3)', fontSize: 14 }}>Loading...</p>
+          <p style={{ color: 'var(--text3)', fontSize: 16 }}>Loading...</p>
         </div>
       </div>
     );

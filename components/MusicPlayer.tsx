@@ -60,7 +60,7 @@ export function MusicPlayer({ tracks, onTrackDeleted }: MusicPlayerProps) {
   if (tracks.length === 0) {
     return (
       <div style={{ borderRadius: 12, border: '1px solid var(--border)', background: 'var(--surface)', padding: 32, textAlign: 'center' }}>
-        <p style={{ color: 'var(--text3)', fontSize: 14 }}>No music uploaded yet</p>
+        <p style={{ color: 'var(--text3)', fontSize: 16 }}>No music uploaded yet</p>
       </div>
     );
   }
@@ -70,7 +70,7 @@ export function MusicPlayer({ tracks, onTrackDeleted }: MusicPlayerProps) {
       {/* Player */}
       <div style={{ borderRadius: 12, border: '1px solid var(--border)', background: 'var(--surface)', padding: 24 }}>
         <div style={{ marginBottom: 16 }}>
-          <h3 style={{ fontSize: 18, fontWeight: 600, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{currentTrack?.title}</h3>
+          <h3 style={{ fontSize: 20, fontWeight: 600, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{currentTrack?.title}</h3>
           <audio
             ref={audioRef}
             src={currentTrack?.file_url}
@@ -160,7 +160,7 @@ export function MusicTrackItem({ track, isActive, onSelect, onDelete }: MusicTra
         justifyContent: 'space-between'
       }}
     >
-      <span style={{ fontSize: 14, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{track.title}</span>
+      <span style={{ fontSize: 16, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{track.title}</span>
       <button
         onClick={(e) => {
           e.stopPropagation();
@@ -172,7 +172,7 @@ export function MusicTrackItem({ track, isActive, onSelect, onDelete }: MusicTra
           border: 'none', 
           color: 'var(--text3)', 
           cursor: 'pointer', 
-          fontSize: 12, 
+          fontSize: 14, 
           padding: '2px 6px',
           borderRadius: 4,
           marginLeft: 8,
@@ -247,7 +247,7 @@ export function MusicUpload({ onUploadComplete }: MusicUploadProps) {
           border: '1px solid var(--border)',
           background: 'var(--surface2)',
           color: 'var(--text)',
-          fontSize: 14,
+          fontSize: 16,
           outline: 'none'
         }}
       />
@@ -263,9 +263,9 @@ export function MusicUpload({ onUploadComplete }: MusicUploadProps) {
           }
           setFile(f);
         }}
-        style={{ fontSize: 12, color: 'var(--text3)' }}
+        style={{ fontSize: 14, color: 'var(--text3)' }}
       />
-      {error && <p style={{ fontSize: 13, color: 'var(--text)' }}>{error}</p>}
+      {error && <p style={{ fontSize: 15, color: 'var(--text)' }}>{error}</p>}
       <button
         onClick={handleUpload}
         disabled={uploading || !title.trim() || !file}

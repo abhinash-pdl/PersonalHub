@@ -83,16 +83,16 @@ export default function LoginPage() {
             <img src="/favicon.ico" alt="PersonalHub" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
           </div>
           <div>
-            <p style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.14em', color: 'var(--text3)', marginBottom: 4 }}>
+            <p style={{ fontSize: 13, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.14em', color: 'var(--text3)', marginBottom: 4 }}>
               PersonalHub
             </p>
-            <h1 style={{ fontSize: 24, fontWeight: 800, color: 'var(--text)', letterSpacing: '-0.7px', lineHeight: 1.1 }}>
+            <h1 style={{ fontSize: 26, fontWeight: 800, color: 'var(--text)', letterSpacing: '-0.7px', lineHeight: 1.1 }}>
               {mode === 'forgot' ? 'Reset your password' : isSignup ? 'Create your account' : 'Sign in to continue'}
             </h1>
           </div>
         </div>
 
-        <p style={{ color: 'var(--text3)', fontSize: 14, marginBottom: 22, lineHeight: 1.6 }}>
+        <p style={{ color: 'var(--text3)', fontSize: 16, marginBottom: 22, lineHeight: 1.6 }}>
           {mode === 'forgot'
             ? 'Enter your account email and we will send you a link to choose a new password.'
             : isSignup
@@ -108,7 +108,7 @@ export default function LoginPage() {
             border: '1px solid #ffffff44',
             background: 'rgba(255,255,255,0.04)',
             color: 'var(--text)',
-            fontSize: 13,
+            fontSize: 15,
             lineHeight: 1.5,
           }}>
             {error}
@@ -123,7 +123,7 @@ export default function LoginPage() {
             border: '1px solid var(--border2)',
             background: 'rgba(255,255,255,0.04)',
             color: 'var(--text)',
-            fontSize: 13,
+            fontSize: 15,
             lineHeight: 1.5,
           }}>
             {notice}
@@ -153,7 +153,7 @@ export default function LoginPage() {
                   <button
                     type="button"
                     onClick={() => switchMode('forgot')}
-                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text2)', fontWeight: 600, fontSize: 12, fontFamily: 'var(--font)' }}
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text2)', fontWeight: 600, fontSize: 14, fontFamily: 'var(--font)' }}
                   >
                     Forgot password?
                   </button>
@@ -182,14 +182,14 @@ export default function LoginPage() {
           </button>
         </form>
 
-        <div style={{ marginTop: 18, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, fontSize: 13, color: 'var(--text3)' }}>
+        <div style={{ marginTop: 18, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, fontSize: 15, color: 'var(--text3)' }}>
           {mode === 'forgot' ? (
             <>
               <span>Remembered it?</span>
               <button
                 type="button"
                 onClick={() => switchMode('login')}
-                style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text)', fontWeight: 700, fontSize: 13, fontFamily: 'var(--font)' }}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text)', fontWeight: 700, fontSize: 15, fontFamily: 'var(--font)' }}
               >
                 Back to sign in
               </button>
@@ -200,7 +200,7 @@ export default function LoginPage() {
               <button
                 type="button"
                 onClick={() => switchMode(isSignup ? 'login' : 'signup')}
-                style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text)', fontWeight: 700, fontSize: 13, fontFamily: 'var(--font)' }}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text)', fontWeight: 700, fontSize: 15, fontFamily: 'var(--font)' }}
               >
                 {isSignup ? 'Sign in' : 'Create an account'}
               </button>

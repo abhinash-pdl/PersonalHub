@@ -109,7 +109,7 @@ export default function MusicBar() {
           onClick={cycleRepeat}
           style={repeatMode === 'off' ? { opacity: 0.45 } : undefined}
         >
-          <span aria-hidden="true" style={{ fontSize: '15px', lineHeight: 1 }}>{REPEAT_ICON[repeatMode]}</span>
+          <span aria-hidden="true" style={{ fontSize: '17px', lineHeight: 1 }}>{REPEAT_ICON[repeatMode]}</span>
         </button>
       </div>
 

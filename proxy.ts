@@ -50,11 +50,21 @@ export async function proxy(request: NextRequest) {
       data: { user },
     } = await supabase.auth.getUser();
 
-    // Only redirect if hitting a protected route without a session
     if (!user) {
-      const loginUrl = request.nextUrl.clone();
-      loginUrl.pathname = '/';
-      return NextResponse.redirect(loginUrl);
+      // Redirect only on confirmed sign-out (no session cookie at all).
+      // A present-but-unreadable session means a transient failure (token
+      // refresh race, Navigator lock contention across tabs) — booting to
+      // login on those kicks active users out mid-click. Let the request
+      // through; the client revalidates and redirects only when sign-out
+      // is confirmed.
+      const hasSessionCookie = request.cookies
+        .getAll()
+        .some((c) => c.name.startsWith('sb-') && c.name.includes('auth-token'));
+      if (!hasSessionCookie) {
+        const loginUrl = request.nextUrl.clone();
+        loginUrl.pathname = '/';
+        return NextResponse.redirect(loginUrl);
+      }
     }
 
     return supabaseResponse;

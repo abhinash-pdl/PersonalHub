@@ -539,7 +539,7 @@ export function GalleryImageCard({ image, onDelete }: GalleryImageCardProps) {
             aria-label="Delete image"
             onClick={(e) => { e.stopPropagation(); setConfirmOpen(true); }}
             disabled={deleting}
-            style={{ fontSize: '18px', padding: '8px', minWidth: '44px', minHeight: '44px' }}
+            style={{ fontSize: '20px', padding: '8px', minWidth: '44px', minHeight: '44px' }}
           >
             {deleting ? '...' : '✕'}
           </button>
