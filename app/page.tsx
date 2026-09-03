@@ -6,13 +6,34 @@ import { useRouter } from 'next/navigation';
 
 type Mode = 'login' | 'signup' | 'forgot';
 
+/**
+ * Surface auth-link failures (expired/used recovery link lands here with
+ * ?error=&msg= instead of silently showing the login form). Computed lazily
+ * as initial state; the params are cleared so refresh shows a clean form.
+ */
+function getLinkFailure(): { mode: Mode; error: string } | null {
+  if (typeof window === 'undefined') return null;
+  const q = new URLSearchParams(window.location.search);
+  if (!q.get('error')) return null;
+  const detail = (q.get('msg') || '').slice(0, 200);
+  window.history.replaceState(null, '', window.location.pathname);
+  return {
+    mode: 'forgot',
+    error:
+      detail && !/missing its credentials/i.test(detail)
+        ? `Password link problem: ${detail} Request a new reset link below.`
+        : 'That password link is invalid or has expired. Request a new reset link below.',
+  };
+}
+
 export default function LoginPage() {
   const { login, signup, requestPasswordReset, user } = useAuth();
   const router = useRouter();
+  const [linkFailure] = useState(getLinkFailure);
   const [email, setEmail]       = useState('');
   const [password, setPassword] = useState('');
-  const [mode, setMode]         = useState<Mode>('login');
-  const [error, setError]       = useState('');
+  const [mode, setMode]         = useState<Mode>(linkFailure?.mode ?? 'login');
+  const [error, setError]       = useState(linkFailure?.error ?? '');
   const [notice, setNotice]     = useState('');
   const [loading, setLoading] = useState(false);
   const isSignup = mode === 'signup';

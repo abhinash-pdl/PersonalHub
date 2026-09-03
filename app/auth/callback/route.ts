@@ -1,43 +1,11 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { createServerClient } from '@supabase/ssr';
+import { NextRequest } from 'next/server';
+import { exchangeAuthCode } from '@/app/auth/exchange';
 
 /**
- * PKCE callback for Supabase emails (password recovery, email confirm).
- * Supabase redirects here with `?code=...`; we exchange it for a session
- * (cookies are set on this response) and forward to `?next=...`.
+ * Generic PKCE callback for Supabase emails (?next=... selects destination).
+ * Recovery mail now uses /auth/recover instead; this stays for compatibility.
  */
 export async function GET(request: NextRequest) {
-  const { searchParams, origin } = new URL(request.url);
-  const code = searchParams.get('code');
-  const next = searchParams.get('next') ?? '/dashboard';
-
-  if (!code) {
-    return NextResponse.redirect(`${origin}/?error=missing_code`);
-  }
-
-  const response = NextResponse.redirect(`${origin}${next}`);
-
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        getAll() {
-          return request.cookies.getAll();
-        },
-        setAll(cookiesToSet) {
-          cookiesToSet.forEach(({ name, value, options }) => {
-            response.cookies.set(name, value, options);
-          });
-        },
-      },
-    },
-  );
-
-  const { error } = await supabase.auth.exchangeCodeForSession(code);
-  if (error) {
-    return NextResponse.redirect(`${origin}/?error=exchange_failed`);
-  }
-
-  return response;
+  const next = new URL(request.url).searchParams.get('next') ?? '/dashboard';
+  return exchangeAuthCode(request, next);
 }

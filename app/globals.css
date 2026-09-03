@@ -1930,6 +1930,14 @@ body {
   }
 }
 
+/* Real desktops (mouse + hover) never get mobile FABs — even in a narrow
+   or zoomed window where the width queries match. Touch devices keep them. */
+@media (hover: hover) and (pointer: fine) {
+  .quick-actions {
+    display: none !important;
+  }
+}
+
 /* ===== CONFIRM SHEET ===== */
 .sheet-actions {
   display: flex;
