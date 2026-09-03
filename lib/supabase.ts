@@ -173,6 +173,16 @@ function isInvalidRefreshTokenError(error: unknown) {
   return message.includes('Invalid Refresh Token') || message.includes('Refresh Token Not Found');
 }
 
+/**
+ * No session exists (signed out / login page). Newer supabase-js THROWS this
+ * from getUser() instead of returning null — treat it as signed-out, never
+ * as a crash.
+ */
+function isMissingSessionError(error: unknown) {
+  const message = String((error as { message?: unknown } | null | undefined)?.message || error);
+  return message.includes('Auth session missing');
+}
+
 async function clearLocalSession() {
   try {
     await getSupabaseClient().auth.signOut({ scope: 'local' });
@@ -186,27 +196,36 @@ async function clearLocalSession() {
 export async function getCachedUser(): Promise<User | null> {
   const now = Date.now();
 
-  // Return cached user if still fresh
-  if (cachedUser && now < userCacheExpiry) return cachedUser;
+  // Return cached value (user OR null) while fresh — avoids re-throwing
+  // AuthSessionMissingError on every call when signed out.
+  if (now < userCacheExpiry) return cachedUser;
 
   // Deduplicate concurrent calls
   if (userFetchPromise) return userFetchPromise;
 
+  const cacheNull = () => {
+    cachedUser = null;
+    userCacheExpiry = Date.now() + USER_CACHE_TTL;
+    return null;
+  };
+
   userFetchPromise = (async () => {
     try {
       const { data, error } = await withAuthRetry(() => getSupabaseClient().auth.getUser());
-      if (error && isInvalidRefreshTokenError(error)) {
+      if (error && (isInvalidRefreshTokenError(error) || isMissingSessionError(error))) {
         await clearLocalSession();
-        return null;
+        return cacheNull();
       }
       if (error) throw error;
-      cachedUser = data.user || null;
+      if (!data.user) return cacheNull();
+      cachedUser = data.user;
       userCacheExpiry = Date.now() + USER_CACHE_TTL;
       return cachedUser;
     } catch (error) {
-      if (isInvalidRefreshTokenError(error)) {
-        await clearLocalSession();
-        return null;
+      if (isInvalidRefreshTokenError(error) || isMissingSessionError(error)) {
+        // Signed out / no session: quiet null, never a crash.
+        if (!isMissingSessionError(error)) await clearLocalSession();
+        return cacheNull();
       }
       // Lock contention: keep previous cache instead of crashing callers
       if (isLockError(error) && cachedUser) return cachedUser;

@@ -7,7 +7,11 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import AppNav from '@/components/AppNav';
 
-function MobileAccountMenu({
+/**
+ * Account menu used on ALL widths: avatar icon button opens a dropdown with
+ * the signed-in email, the Account page link, and Logout.
+ */
+function AccountMenu({
   email,
   onLogout,
 }: {
@@ -36,7 +40,7 @@ function MobileAccountMenu({
   }, [accountOpen]);
 
   return (
-    <div className="nav-mobile-account" ref={menuRef}>
+    <div className="nav-account" ref={menuRef}>
       <button
         type="button"
         className="nav-account-toggle"
@@ -54,6 +58,9 @@ function MobileAccountMenu({
             <div className="nav-avatar">{email.slice(0, 1).toUpperCase()}</div>
             <span title={email}>{email}</span>
           </div>
+          <Link href="/dashboard/account" prefetch className="btn-logout" style={{ textDecoration: 'none', justifyContent: 'center' }} onClick={() => setAccountOpen(false)}>
+            Account
+          </Link>
           <button type="button" className="btn-logout" onClick={onLogout}>
             Logout
           </button>
@@ -93,17 +100,7 @@ export default function Navbar() {
 
       <AppNav variant="top" />
 
-      <div className="nav-right">
-        <div className="nav-user">
-          <div className="nav-avatar">{email.slice(0, 1).toUpperCase()}</div>
-          <span>{email}</span>
-        </div>
-        <button type="button" className="btn-logout" onClick={handleLogout}>
-          Logout
-        </button>
-      </div>
-
-      <MobileAccountMenu email={email} onLogout={handleLogout} />
+      <AccountMenu email={email} onLogout={handleLogout} />
     </header>
   );
 }

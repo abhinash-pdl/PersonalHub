@@ -122,6 +122,94 @@ export async function signOutAction() {
 }
 
 /**
+ * Resolve the public origin for absolute redirect URLs (password recovery).
+ * Prefers the request origin, falls back to the configured site URL.
+ */
+async function getPublicOrigin() {
+  try {
+    const { headers } = await import('next/headers');
+    const origin = (await headers()).get('origin');
+    if (origin) return origin;
+  } catch {
+    // ignore — fall through to env default
+  }
+  const site = process.env.NEXT_PUBLIC_SITE_URL;
+  if (site) return site.replace(/\/$/, '');
+  return 'http://localhost:3000';
+}
+
+/**
+ * Send a password-recovery email (no session required).
+ * The email links to /auth/callback?next=/reset-password which establishes
+ * a recovery session, then lands on the reset form.
+ */
+export async function requestPasswordResetAction(email: string) {
+  try {
+    const clean = email.trim().toLowerCase();
+    if (!clean || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(clean)) {
+      return { success: false, error: 'Enter a valid email address' };
+    }
+
+    const supabase = await getAuthServerClient();
+    const origin = await getPublicOrigin();
+    const { error } = await supabase.auth.resetPasswordForEmail(clean, {
+      redirectTo: `${origin}/auth/callback?next=/reset-password`,
+    });
+
+    if (error) throw error;
+
+    // Always respond generically so emails can't be enumerated.
+    return { success: true };
+  } catch (error) {
+    return { success: false, error: (error as Error).message };
+  }
+}
+
+/**
+ * Set a new password for the currently authenticated user.
+ * Works for both recovery sessions (after email link) and logged-in users
+ * changing their password. Supabase signs out other sessions on change.
+ */
+export async function updatePasswordAction(newPassword: string) {
+  try {
+    if (!newPassword || newPassword.length < 6) {
+      return { success: false, error: 'Password must be at least 6 characters' };
+    }
+
+    await getAuthenticatedUser();
+    const supabase = await getAuthServerClient();
+
+    const { error } = await supabase.auth.updateUser({ password: newPassword });
+    if (error) throw error;
+
+    revalidateDashboard(['/dashboard']);
+    return { success: true };
+  } catch (error) {
+    return { success: false, error: (error as Error).message };
+  }
+}
+
+/**
+ * Verify a password against the given email (used to confirm the current
+ * password before allowing a change). Uses an isolated in-memory client so
+ * the caller's real session cookies are never touched.
+ */
+export async function verifyPasswordAction(email: string, password: string) {
+  try {
+    const supabase = createServerClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      { cookies: { getAll: () => [], setAll: () => {} } },
+    );
+    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    if (error) throw error;
+    return { success: true };
+  } catch {
+    return { success: false, error: 'Current password is incorrect' };
+  }
+}
+
+/**
  * Create a note (server-side validation)
  */
 export async function createNoteAction(title: string, content: string) {

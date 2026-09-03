@@ -4,14 +4,18 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useRouter } from 'next/navigation';
 
+type Mode = 'login' | 'signup' | 'forgot';
+
 export default function LoginPage() {
-  const { login, signup, user } = useAuth();
+  const { login, signup, requestPasswordReset, user } = useAuth();
   const router = useRouter();
   const [email, setEmail]       = useState('');
   const [password, setPassword] = useState('');
-  const [isSignup, setIsSignup] = useState(false);
+  const [mode, setMode]         = useState<Mode>('login');
   const [error, setError]       = useState('');
-  const [loading, setLoading]   = useState(false);
+  const [notice, setNotice]     = useState('');
+  const [loading, setLoading] = useState(false);
+  const isSignup = mode === 'signup';
 
   useEffect(() => {
     if (user) router.push('/dashboard');
@@ -20,19 +24,30 @@ export default function LoginPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+    setNotice('');
     setLoading(true);
     try {
-      if (isSignup) {
+      if (mode === 'forgot') {
+        await requestPasswordReset(email);
+        setNotice('If an account exists for this email, a reset link is on its way. Check your inbox (and spam).');
+      } else if (isSignup) {
         await signup(email, password);
+        router.push('/dashboard');
       } else {
         await login(email, password);
+        router.push('/dashboard');
       }
-      router.push('/dashboard');
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Authentication failed');
     } finally {
       setLoading(false);
     }
+  };
+
+  const switchMode = (next: Mode) => {
+    setMode(next);
+    setError('');
+    setNotice('');
   };
 
   return (
@@ -51,15 +66,17 @@ export default function LoginPage() {
               PersonalHub
             </p>
             <h1 style={{ fontSize: 24, fontWeight: 800, color: 'var(--text)', letterSpacing: '-0.7px', lineHeight: 1.1 }}>
-              {isSignup ? 'Create your account' : 'Sign in to continue'}
+              {mode === 'forgot' ? 'Reset your password' : isSignup ? 'Create your account' : 'Sign in to continue'}
             </h1>
           </div>
         </div>
 
         <p style={{ color: 'var(--text3)', fontSize: 14, marginBottom: 22, lineHeight: 1.6 }}>
-          {isSignup
-            ? 'Make a new account to keep notes, music, photos, and letters in one place.'
-            : 'Welcome back. Sign in to get back to your notes, music, photos, and letters.'}
+          {mode === 'forgot'
+            ? 'Enter your account email and we will send you a link to choose a new password.'
+            : isSignup
+              ? 'Make a new account to keep notes, music, photos, and letters in one place.'
+              : 'Welcome back. Sign in to get back to your notes, music, photos, and letters.'}
         </p>
 
         {error && (
@@ -74,6 +91,21 @@ export default function LoginPage() {
             lineHeight: 1.5,
           }}>
             {error}
+          </div>
+        )}
+
+        {notice && (
+          <div role="status" style={{
+            marginBottom: 16,
+            padding: '12px 14px',
+            borderRadius: 12,
+            border: '1px solid var(--border2)',
+            background: 'rgba(255,255,255,0.04)',
+            color: 'var(--text)',
+            fontSize: 13,
+            lineHeight: 1.5,
+          }}>
+            {notice}
           </div>
         )}
 
@@ -92,19 +124,32 @@ export default function LoginPage() {
             />
           </div>
 
-          <div style={{ display: 'grid', gap: 6 }}>
-            <label className="field-label">Password</label>
-            <input
-              type="password"
-              placeholder="••••••••"
-              value={password}
-              onChange={e => setPassword(e.target.value)}
-              required
-              autoComplete={isSignup ? 'new-password' : 'current-password'}
-              className="field-input"
-              style={{ height: 46 }}
-            />
-          </div>
+          {mode !== 'forgot' && (
+            <div style={{ display: 'grid', gap: 6 }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <label className="field-label" style={{ marginBottom: 0 }}>Password</label>
+                {mode === 'login' && (
+                  <button
+                    type="button"
+                    onClick={() => switchMode('forgot')}
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text2)', fontWeight: 600, fontSize: 12, fontFamily: 'var(--font)' }}
+                  >
+                    Forgot password?
+                  </button>
+                )}
+              </div>
+              <input
+                type="password"
+                placeholder="••••••••"
+                value={password}
+                onChange={e => setPassword(e.target.value)}
+                required
+                autoComplete={isSignup ? 'new-password' : 'current-password'}
+                className="field-input"
+                style={{ height: 46 }}
+              />
+            </div>
+          )}
 
           <button
             type="submit"
@@ -112,19 +157,34 @@ export default function LoginPage() {
             className="btn-primary"
             style={{ marginTop: 6, opacity: loading ? 0.6 : 1, height: 48 }}
           >
-            {loading ? 'Please wait…' : isSignup ? 'Create account' : 'Sign in'}
+            {loading ? 'Please wait…' : mode === 'forgot' ? 'Send reset link' : isSignup ? 'Create account' : 'Sign in'}
           </button>
         </form>
 
         <div style={{ marginTop: 18, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, fontSize: 13, color: 'var(--text3)' }}>
-          <span>{isSignup ? 'Already have an account?' : 'New here?'}</span>
-          <button
-            type="button"
-            onClick={() => { setIsSignup(!isSignup); setError(''); }}
-            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text)', fontWeight: 700, fontSize: 13, fontFamily: 'var(--font)' }}
-          >
-            {isSignup ? 'Sign in' : 'Create an account'}
-          </button>
+          {mode === 'forgot' ? (
+            <>
+              <span>Remembered it?</span>
+              <button
+                type="button"
+                onClick={() => switchMode('login')}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text)', fontWeight: 700, fontSize: 13, fontFamily: 'var(--font)' }}
+              >
+                Back to sign in
+              </button>
+            </>
+          ) : (
+            <>
+              <span>{isSignup ? 'Already have an account?' : 'New here?'}</span>
+              <button
+                type="button"
+                onClick={() => switchMode(isSignup ? 'login' : 'signup')}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text)', fontWeight: 700, fontSize: 13, fontFamily: 'var(--font)' }}
+              >
+                {isSignup ? 'Sign in' : 'Create an account'}
+              </button>
+            </>
+          )}
         </div>
       </div>
     </div>

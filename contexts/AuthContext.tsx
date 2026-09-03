@@ -2,8 +2,8 @@
 
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState, ReactNode } from 'react';
 import { User } from '@supabase/supabase-js';
-import { signInAction, signOutAction, signUpAction } from '@/app/actions';
-import { getCachedUser, getSupabaseClient, withAuthRetry } from '@/lib/supabase';
+import { requestPasswordResetAction, signInAction, signOutAction, signUpAction, updatePasswordAction } from '@/app/actions';
+import { getCachedUser, getSupabaseClient, invalidateUserCache, withAuthRetry } from '@/lib/supabase';
 
 interface AuthContextType {
   user: User | null;
@@ -11,6 +11,8 @@ interface AuthContextType {
   login: (email: string, password: string) => Promise<void>;
   signup: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
+  requestPasswordReset: (email: string) => Promise<void>;
+  updatePassword: (newPassword: string) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -75,6 +77,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }));
       }
 
+      // Drop any cached signed-out state so data loads immediately.
+      invalidateUserCache();
       setUser(result.user);
     } finally {
       setLoading(false);
@@ -96,6 +100,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }));
       }
 
+      // Drop any cached signed-out state so data loads immediately.
+      invalidateUserCache();
       setUser(result.user);
     } finally {
       setLoading(false);
@@ -109,15 +115,31 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (!result.success) throw new Error(result.error || 'Logout failed');
 
       await clearLocalSession();
+      invalidateUserCache();
       setUser(null);
     } finally {
       setLoading(false);
     }
   }, [clearLocalSession]);
 
+  const requestPasswordReset = useCallback(async (email: string) => {
+    const result = await requestPasswordResetAction(email);
+    if (!result.success) throw new Error(result.error || 'Could not send reset email');
+  }, []);
+
+  const updatePassword = useCallback(async (newPassword: string) => {
+    setLoading(true);
+    try {
+      const result = await updatePasswordAction(newPassword);
+      if (!result.success) throw new Error(result.error || 'Could not update password');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
   const value = useMemo(
-    () => ({ user, loading, login, signup, logout }),
-    [user, loading, login, signup, logout],
+    () => ({ user, loading, login, signup, logout, requestPasswordReset, updatePassword }),
+    [user, loading, login, signup, logout, requestPasswordReset, updatePassword],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
