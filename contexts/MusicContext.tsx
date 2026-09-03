@@ -10,7 +10,7 @@ import React, {
   useState,
   ReactNode,
 } from 'react';
-import { music } from '@/lib/supabase';
+import { classifyFileUrl, isLoadableFileUrl, music, resolveMusicUrl } from '@/lib/supabase';
 
 export interface MusicTrack {
   id: string;
@@ -21,12 +21,17 @@ export interface MusicTrack {
   created_at: string;
 }
 
-function normalizeTrack(row: Record<string, unknown>): MusicTrack {
-  const fileUrl =
-    (row.file_url as string) ??
-    (row.url as string) ??
-    (row.filePath as string) ??
+function normalizeTrack(row: Record<string, unknown>): MusicTrack | null {
+  const raw =
+    (row.file_url as string | null | undefined) ??
+    (row.url as string | null | undefined) ??
+    (row.filePath as string | null | undefined) ??
     '';
+  // Keep rows with any usable reference: private-bucket paths, current-host
+  // URLs, or external URLs. Stale-host rows are partitioned out later; drop
+  // file:// / empty values so the player never attempts a blocked fetch.
+  if (classifyFileUrl(raw) === 'invalid') return null;
+  const fileUrl = raw;
   return {
     id: String(row.id),
     title: String(row.title ?? ''),
@@ -42,31 +47,41 @@ type ProgressListener = (currentTime: number, duration: number) => void;
 // --- Library context (tracks, loading) — updates rarely ---
 interface MusicLibraryContextType {
   tracks: MusicTrack[];
+  /** Rows whose file_url points at a previous (dead) Supabase project — need re-upload. */
+  staleTracks: MusicTrack[];
   loading: boolean;
   error: string;
+  audioError: string;
   refreshTracks: () => Promise<void>;
   upsertTrack: (track: MusicTrack) => void;
+  removeStaleTracks: () => void;
 }
 
 const MusicLibraryContext = createContext<MusicLibraryContextType | undefined>(undefined);
+
+export type RepeatMode = 'all' | 'one' | 'off';
 
 // --- Player context (current track, playback controls) — updates frequently ---
 interface MusicPlayerContextType {
   currentTrack: MusicTrack | null;
   isPlaying: boolean;
   duration: number;
+  repeatMode: RepeatMode;
   playTrack: (track: MusicTrack) => void;
   togglePlay: () => void;
   seek: (time: number) => void;
   next: () => void;
   prev: () => void;
   stop: () => void;
+  cycleRepeat: () => void;
   subscribeProgress: (listener: ProgressListener) => () => void;
 }
 
 const MusicPlayerContext = createContext<MusicPlayerContextType | undefined>(undefined);
 
 const STORAGE_TRACK_ID = 'ph:music:last-track-id';
+const STORAGE_CACHED_TRACKS = 'ph:music:cached-tracks';
+const STORAGE_SESSION_RANDOM = 'ph:music:session-random';
 
 function readSavedTrackId(): string | null {
   try {
@@ -84,29 +99,80 @@ function writeSavedTrackId(id: string) {
   }
 }
 
+function readCachedTracks(): MusicTrack[] | null {
+  try {
+    const raw = window.localStorage.getItem(STORAGE_CACHED_TRACKS);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed) || parsed.length === 0) return null;
+    const valid = (parsed as MusicTrack[]).filter((t) => isLoadableFileUrl(t?.file_url));
+    if (valid.length === 0) return null;
+    return valid;
+  } catch {
+    return null;
+  }
+}
+
+function writeCachedTracks(tracks: MusicTrack[]) {
+  try {
+    window.localStorage.setItem(STORAGE_CACHED_TRACKS, JSON.stringify(tracks));
+  } catch {
+    // ignore
+  }
+}
+
+function getSessionRandomIndex(): number | null {
+  try {
+    const val = window.localStorage.getItem(STORAGE_SESSION_RANDOM);
+    return val !== null ? parseInt(val, 10) : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeSessionRandomIndex(index: number) {
+  try {
+    window.localStorage.setItem(STORAGE_SESSION_RANDOM, String(index));
+  } catch {
+    // ignore
+  }
+}
+
+function pickRandomTrack(tracks: MusicTrack[]): MusicTrack {
+  const idx = Math.floor(Math.random() * tracks.length);
+  return tracks[idx];
+}
+
 export function MusicProvider({ children }: { children: ReactNode }) {
   // --- Library state (rarely changes) ---
   const [tracks, setTracks] = useState<MusicTrack[]>([]);
+  const [staleTracks, setStaleTracks] = useState<MusicTrack[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [audioError, setAudioError] = useState('');
 
   // --- Player state ---
   const [currentTrack, setCurrentTrack] = useState<MusicTrack | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [duration, setDuration] = useState(0);
+  // Circular playlist loops infinitely by default (repeat all).
+  const [repeatMode, setRepeatMode] = useState<RepeatMode>('all');
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const tracksRef = useRef<MusicTrack[]>([]);
   const currentTrackRef = useRef<MusicTrack | null>(null);
+  const repeatModeRef = useRef<RepeatMode>('all');
   const progressListenersRef = useRef(new Set<ProgressListener>());
   const durationRef = useRef(0);
   const lastProgressEmitRef = useRef(0);
   const hasInitialized = useRef(false);
+  const hasAutoPlayed = useRef(false);
 
   // Keep refs in sync via effect to avoid ref-during-render lint errors
   useEffect(() => {
     tracksRef.current = tracks;
     currentTrackRef.current = currentTrack;
+    repeatModeRef.current = repeatMode;
   });
 
   const emitProgress = useCallback((time: number, total: number, force = false) => {
@@ -130,7 +196,19 @@ export function MusicProvider({ children }: { children: ReactNode }) {
       setError('');
       const data = await music.getAll();
       const rows = Array.isArray(data) ? (data as unknown[]) : [];
-      setTracks(rows.map((row) => normalizeTrack(row as Record<string, unknown>)));
+      const normalized = rows
+        .map((row) => normalizeTrack(row as Record<string, unknown>))
+        .filter((t): t is MusicTrack => t !== null);
+      // Partition: only current-project/external URLs are loadable. Rows pointing
+      // at a previous Supabase project would only produce CORS/network errors.
+      const loadable = normalized.filter((t) => isLoadableFileUrl(t.file_url));
+      const stale = normalized.filter((t) => classifyFileUrl(t.file_url) === 'stale');
+      setTracks(loadable);
+      setStaleTracks(stale);
+      writeCachedTracks(loadable);
+      if (rows.length > 0 && normalized.length === 0) {
+        setError('Tracks found but their file URLs are invalid. Re-upload the MP3s.');
+      }
     } catch (err: unknown) {
       console.error('Error loading tracks:', err);
       setError(err instanceof Error ? err.message : 'Failed to load tracks');
@@ -140,20 +218,58 @@ export function MusicProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const upsertTrack = useCallback((track: MusicTrack) => {
-    setTracks((prev) => [track, ...prev.filter((t) => t.id !== track.id)]);
+    if (!isLoadableFileUrl(track.file_url)) return;
+    setTracks((prev) => {
+      const next = [track, ...prev.filter((t) => t.id !== track.id)];
+      writeCachedTracks(next);
+      return next;
+    });
+  }, []);
+
+  const removeStaleTracks = useCallback(() => {
+    setStaleTracks([]);
   }, []);
 
   // --- Player actions ---
+  // Buckets are private: resolve a fresh signed URL for every play (cheap,
+  // cached for 7 days) so playback never relies on an expired link.
+  const playTokenRef = useRef(0);
   const playTrack = useCallback((track: MusicTrack) => {
+    const state = classifyFileUrl(track.file_url);
+    if (state === 'stale') {
+      setAudioError(`"${track.title || 'Track'}" points at old storage from a previous project. Re-upload it.`);
+      return;
+    }
+    if (state === 'invalid') {
+      setAudioError(`"${track.title || 'Track'}" has an invalid file URL and can't be played.`);
+      return;
+    }
+    setAudioError('');
     setCurrentTrack(track);
     writeSavedTrackId(track.id);
     emitProgress(0, durationRef.current, true);
+    const token = ++playTokenRef.current;
     const el = audioRef.current;
-    if (el) {
-      el.src = track.file_url;
-      el.play().catch(() => {});
+    if (!el) {
+      setIsPlaying(true);
+      return;
     }
     setIsPlaying(true);
+    void (async () => {
+      const src = await resolveMusicUrl(track.file_url);
+      if (token !== playTokenRef.current) return; // superseded by a newer play
+      if (!src) {
+        setAudioError(`"${track.title || 'Track'}" couldn't load. Re-upload it and try again.`);
+        setIsPlaying(false);
+        return;
+      }
+      el.src = src;
+      // No crossOrigin: plain playback doesn't need CORS preflights.
+      el.play().catch(() => {
+        // Autoplay blocked — track stays selected, user presses play.
+        if (token === playTokenRef.current) setIsPlaying(false);
+      });
+    })();
   }, [emitProgress]);
 
   const togglePlay = useCallback(() => {
@@ -174,31 +290,34 @@ export function MusicProvider({ children }: { children: ReactNode }) {
     }
   }, [emitProgress]);
 
+  // Circular playlist: next/prev wrap around so the queue loops infinitely.
   const next = useCallback(() => {
-    const ct = currentTrackRef.current;
     const tl = tracksRef.current;
-    if (!ct || tl.length === 0) return;
-    const idx = tl.findIndex((t) => t.id === ct.id);
-    if (idx >= 0 && idx < tl.length - 1) {
-      playTrack(tl[idx + 1]);
-    }
+    if (tl.length === 0) return;
+    const ct = currentTrackRef.current;
+    const idx = ct ? tl.findIndex((t) => t.id === ct.id) : -1;
+    playTrack(tl[(idx + 1 + tl.length) % tl.length]);
   }, [playTrack]);
 
   const prev = useCallback(() => {
-    const ct = currentTrackRef.current;
     const tl = tracksRef.current;
-    if (!ct || tl.length === 0) return;
-    const idx = tl.findIndex((t) => t.id === ct.id);
-    if (idx > 0) {
-      playTrack(tl[idx - 1]);
-    }
+    if (tl.length === 0) return;
+    const ct = currentTrackRef.current;
+    const idx = ct ? tl.findIndex((t) => t.id === ct.id) : -1;
+    playTrack(tl[(idx - 1 + tl.length) % tl.length]);
   }, [playTrack]);
 
+  const cycleRepeat = useCallback(() => {
+    setRepeatMode((mode) => (mode === 'all' ? 'one' : mode === 'one' ? 'off' : 'all'));
+  }, []);
+
   const stop = useCallback(() => {
+    playTokenRef.current++; // cancel any in-flight signed-URL resolve
     const el = audioRef.current;
     if (el) {
       el.pause();
-      el.src = '';
+      el.removeAttribute('src');
+      el.load();
     }
     setCurrentTrack(null);
     setIsPlaying(false);
@@ -225,22 +344,45 @@ export function MusicProvider({ children }: { children: ReactNode }) {
     const onPlay = () => setIsPlaying(true);
     const onPause = () => setIsPlaying(false);
     const onEnded = () => {
+      const mode = repeatModeRef.current;
+      if (mode === 'off') {
+        setIsPlaying(false);
+        return;
+      }
+      if (mode === 'one') {
+        const el2 = audioRef.current;
+        if (el2) {
+          el2.currentTime = 0;
+          el2.play().catch(() => setIsPlaying(false));
+        }
+        return;
+      }
+      // 'all': advance circularly (wraps from last back to first infinitely)
       const tl = tracksRef.current;
       const ct = currentTrackRef.current;
-      if (!ct || tl.length === 0) return;
-      const idx = tl.findIndex((t) => t.id === ct.id);
-      if (idx >= 0 && idx < tl.length - 1) {
-        playTrack(tl[idx + 1]);
-      } else {
+      if (!ct || tl.length === 0) {
         setIsPlaying(false);
+        return;
       }
+      const idx = tl.findIndex((t) => t.id === ct.id);
+      playTrack(tl[(idx + 1 + tl.length) % tl.length]);
     };
 
+    const onError = () => {
+      const ct = currentTrackRef.current;
+      setAudioError(
+        ct
+          ? `"${ct.title || 'Track'}" couldn't load. Check your connection and storage access, or re-upload it.`
+          : 'Audio failed to load.',
+      );
+      setIsPlaying(false);
+    };
     el.addEventListener('timeupdate', onTime);
     el.addEventListener('loadedmetadata', onMeta);
     el.addEventListener('play', onPlay);
     el.addEventListener('pause', onPause);
     el.addEventListener('ended', onEnded);
+    el.addEventListener('error', onError);
 
     return () => {
       el.removeEventListener('timeupdate', onTime);
@@ -248,47 +390,89 @@ export function MusicProvider({ children }: { children: ReactNode }) {
       el.removeEventListener('play', onPlay);
       el.removeEventListener('pause', onPause);
       el.removeEventListener('ended', onEnded);
+      el.removeEventListener('error', onError);
     };
   }, [emitProgress, playTrack]);
 
-  // --- Load tracks on mount (no auto-play) ---
+  // --- Load tracks on mount: use cached tracks first for instant display, then refresh ---
   useEffect(() => {
     if (hasInitialized.current) return;
     hasInitialized.current = true;
+
+    // Show cached tracks instantly (no loading spinner)
+    const cached = readCachedTracks();
+    if (cached && cached.length > 0) {
+      queueMicrotask(() => {
+        setTracks(cached);
+        setLoading(false);
+      });
+    }
+
+    // Always refresh from server in the background
     refreshTracks();
   }, [refreshTracks]);
 
-  // --- Restore last-played track (metadata only, no auto-play) ---
+  // --- Restore last-played track and auto-play ---
   useEffect(() => {
-    if (loading || tracks.length === 0 || currentTrack) return;
-    const savedId = readSavedTrackId();
-    if (!savedId) return;
-    const restored = tracks.find((t) => t.id === savedId);
-    if (restored) {
-      // use queueMicrotask to avoid setState in effect lint issue
-      queueMicrotask(() => setCurrentTrack(restored));
-    }
-  }, [loading, tracks, currentTrack]);
+    if (loading || tracks.length === 0 || hasAutoPlayed.current) return;
 
-  // --- Sync CSS variable for layout ---
+    const savedId = readSavedTrackId();
+    let trackToPlay: MusicTrack | null = null;
+
+    if (savedId) {
+      // Restore last played track
+      trackToPlay = tracks.find((t) => t.id === savedId) ?? null;
+    }
+
+    if (!trackToPlay) {
+      // No saved track or track was deleted — pick random for this session
+      const randomIdx = getSessionRandomIndex();
+      if (randomIdx !== null && randomIdx < tracks.length) {
+        trackToPlay = tracks[randomIdx];
+      } else {
+        trackToPlay = pickRandomTrack(tracks);
+        writeSessionRandomIndex(tracks.indexOf(trackToPlay));
+      }
+    }
+
+    if (trackToPlay) {
+      hasAutoPlayed.current = true;
+      if (!isLoadableFileUrl(trackToPlay.file_url)) return;
+      // Resolve through the same signed-URL path as manual playback
+      playTrack(trackToPlay);
+    }
+  }, [loading, tracks, playTrack]);
+
+  // --- Sync CSS variable for layout (match responsive bar heights) ---
   useEffect(() => {
-    document.documentElement.style.setProperty(
-      '--music-bar-height',
-      currentTrack ? '56px' : '0px',
-    );
+    if (!currentTrack) {
+      document.documentElement.style.setProperty('--music-bar-height', '0px');
+      return;
+    }
+    const mqSmall = window.matchMedia('(max-width: 560px)');
+    const mqMedium = window.matchMedia('(max-width: 860px)');
+    const apply = () => {
+      const h = mqSmall.matches ? '44px' : mqMedium.matches ? '48px' : '56px';
+      document.documentElement.style.setProperty('--music-bar-height', h);
+    };
+    apply();
+    mqSmall.addEventListener('change', apply);
+    mqMedium.addEventListener('change', apply);
     return () => {
+      mqSmall.removeEventListener('change', apply);
+      mqMedium.removeEventListener('change', apply);
       document.documentElement.style.setProperty('--music-bar-height', '0px');
     };
   }, [currentTrack]);
 
   const libraryValue = useMemo<MusicLibraryContextType>(
-    () => ({ tracks, loading, error, refreshTracks, upsertTrack }),
-    [tracks, loading, error, refreshTracks, upsertTrack],
+    () => ({ tracks, staleTracks, loading, error: error || audioError, audioError, refreshTracks, upsertTrack, removeStaleTracks }),
+    [tracks, staleTracks, loading, error, audioError, refreshTracks, upsertTrack, removeStaleTracks],
   );
 
   const playerValue = useMemo<MusicPlayerContextType>(
-    () => ({ currentTrack, isPlaying, duration, playTrack, togglePlay, seek, next, prev, stop, subscribeProgress }),
-    [currentTrack, isPlaying, duration, playTrack, togglePlay, seek, next, prev, stop, subscribeProgress],
+    () => ({ currentTrack, isPlaying, duration, repeatMode, playTrack, togglePlay, seek, next, prev, stop, cycleRepeat, subscribeProgress }),
+    [currentTrack, isPlaying, duration, repeatMode, playTrack, togglePlay, seek, next, prev, stop, cycleRepeat, subscribeProgress],
   );
 
   return (

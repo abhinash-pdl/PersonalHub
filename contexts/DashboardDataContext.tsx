@@ -91,68 +91,95 @@ export function DashboardDataProvider({ children }: { children: ReactNode }) {
   const refresh = useCallback(async () => {
     try {
       clearDataCache();
-      const [n, t, f, i, l] = await Promise.all([
-        notes.getAll(),
-        music.getAll(),
-        gallery.getFolders(),
-        gallery.getAllImages(),
-        letters.getAll(),
-      ]);
 
-      const normalizeImages = (rows: unknown): Row[] => {
-        if (!Array.isArray(rows)) return [];
-        return rows as Row[];
+      // Load data progressively — each query resolves independently
+      // so UI updates as soon as each batch arrives
+      const loadNotes = async () => {
+        try {
+          const n = await notes.getAll();
+          setNotesData(
+            (Array.isArray(n) ? (n as Row[]) : []).map((r) => ({
+              id: str(r.id),
+              title: str(r.title) || 'Untitled',
+              content: str(r.content),
+              created_at: iso(r.created_at),
+            })),
+          );
+        } catch (e) {
+          console.error('Error loading notes:', e);
+        }
       };
 
-      const allImages = normalizeImages(i);
+      const loadTracks = async () => {
+        try {
+          const t = await music.getAll();
+          setTracks(
+            (Array.isArray(t) ? (t as Row[]) : []).map((r) => ({
+              id: str(r.id),
+              title: str(r.title) || 'Untitled',
+              artist: str(r.artist) || 'Unknown Artist',
+              file_url: str(r.file_url),
+              uploaded_at: iso(r.uploaded_at ?? r.created_at),
+            })),
+          );
+        } catch (e) {
+          console.error('Error loading tracks:', e);
+        }
+      };
 
-      setNotesData(
-        (Array.isArray(n) ? (n as Row[]) : []).map((r) => ({
-          id: str(r.id),
-          title: str(r.title) || 'Untitled',
-          content: str(r.content),
-          created_at: iso(r.created_at),
-        })),
-      );
+      const loadFolders = async () => {
+        try {
+          const f = await gallery.getFolders();
+          setFolders(
+            (Array.isArray(f) ? (f as Row[]) : []).map((r) => ({
+              id: str(r.id),
+              name: str(r.name) || 'Untitled',
+              created_at: iso(r.created_at),
+            })),
+          );
+        } catch (e) {
+          console.error('Error loading folders:', e);
+        }
+      };
 
-      setTracks(
-        (Array.isArray(t) ? (t as Row[]) : []).map((r) => ({
-          id: str(r.id),
-          title: str(r.title) || 'Untitled',
-          artist: str(r.artist) || 'Unknown Artist',
-          file_url: str(r.file_url),
-          uploaded_at: iso(r.uploaded_at),
-        })),
-      );
+      const loadImages = async () => {
+        try {
+          const i = await gallery.getAllImages();
+          const allImages = Array.isArray(i) ? (i as Row[]) : [];
+          setImages(
+            allImages.map((r) => ({
+              id: str(r.id),
+              file_url: str(r.file_url) || str(r.image_url) || str(r.url) || null,
+              title: str(r.title) || str(r.name) || 'Untitled',
+              uploaded_at: iso(r.uploaded_at),
+              folder_id: str(r.folder_id) || null,
+            })),
+          );
+        } catch (e) {
+          console.error('Error loading images:', e);
+        }
+      };
 
-      setFolders(
-        (Array.isArray(f) ? (f as Row[]) : []).map((r) => ({
-          id: str(r.id),
-          name: str(r.name) || 'Untitled',
-          created_at: iso(r.created_at),
-        })),
-      );
+      const loadLetters = async () => {
+        try {
+          const l = await letters.getAll();
+          setLettersData(
+            (Array.isArray(l) ? (l as Row[]) : []).map((r) => ({
+              id: str(r.id),
+              title: str(r.recipient_name) || str(r.title) || 'Untitled Letter',
+              content: str(r.content),
+              recipient: str(r.recipient_name) || str(r.title) || '',
+              recipient_email: str(r.recipient_email) || '',
+              created_at: iso(r.created_at),
+            })),
+          );
+        } catch (e) {
+          console.error('Error loading letters:', e);
+        }
+      };
 
-      setImages(
-        allImages.map((r) => ({
-          id: str(r.id),
-          file_url: str(r.file_url) || str(r.image_url) || str(r.url) || null,
-          title: str(r.title) || str(r.name) || 'Untitled',
-          uploaded_at: iso(r.uploaded_at),
-          folder_id: str(r.folder_id) || null,
-        })),
-      );
-
-      setLettersData(
-        (Array.isArray(l) ? (l as Row[]) : []).map((r) => ({
-          id: str(r.id),
-          title: str(r.recipient_name) || str(r.title) || 'Untitled Letter',
-          content: str(r.content),
-          recipient: str(r.recipient_name) || str(r.title) || '',
-          recipient_email: str(r.recipient_email) || '',
-          created_at: iso(r.created_at),
-        })),
-      );
+      // Fire all queries in parallel but don't block on the slowest one
+      await Promise.allSettled([loadNotes(), loadTracks(), loadFolders(), loadImages(), loadLetters()]);
     } catch (error) {
       console.error('Error loading dashboard data:', error);
     } finally {

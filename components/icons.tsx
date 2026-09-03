@@ -104,6 +104,16 @@ export function PauseIcon(props: IconProps) {
   );
 }
 
+/** Sleek folder mark matching the nav stroke style. */
+export function FolderIcon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M3.5 7.5A1.5 1.5 0 0 1 5 6h4l2 2.5h8a1.5 1.5 0 0 1 1.5 1.5v8A1.5 1.5 0 0 1 19 19.5H5A1.5 1.5 0 0 1 3.5 18z" />
+      <path d="M3.5 11h17" opacity="0.45" />
+    </Svg>
+  );
+}
+
 export const navIcons = {
   home: HomeIcon,
   notes: NotesIcon,

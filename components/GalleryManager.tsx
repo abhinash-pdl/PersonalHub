@@ -2,14 +2,19 @@
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import Image from 'next/image';
+import Link from 'next/link';
 import {
   createGalleryFolderAction,
   createGalleryImageAction,
   deleteGalleryFolderAction,
   deleteGalleryImageAction,
 } from '@/app/actions';
-import { auth, galleryStorage } from '@/lib/supabase';
+import { auth, classifyFileUrl, galleryStorage } from '@/lib/supabase';
+import { useMobileAction } from '@/lib/mobile-actions';
+import { FolderIcon } from '@/components/icons';
 import { useRouter } from 'next/navigation';
+import MobileSheet from '@/components/MobileSheet';
+import Sheet from '@/components/Sheet';
 
 interface GalleryFolder {
   id: string;
@@ -23,16 +28,17 @@ interface GalleryImage {
   title: string;
   uploaded_at: string | null;
   folder_id?: string | null;
+  /** True when the stored ref points at the dead previous project (re-upload needed). */
+  stale?: boolean;
 }
 
 interface GalleryFoldersProps {
   folders: GalleryFolder[];
-  onFolderSelect?: (folderId: string) => void;
   onRefresh?: () => void;
-  activeFolderId?: string | null;
 }
 
-export function GalleryFolders({ folders, onFolderSelect, onRefresh, activeFolderId }: GalleryFoldersProps) {
+/** Folder creation form shared by the desktop panel and the mobile 📁 FAB sheet. */
+export function FolderCreateForm({ onCreated }: { onCreated?: () => void }) {
   const router = useRouter();
   const [newFolderName, setNewFolderName] = useState('');
   const [creating, setCreating] = useState(false);
@@ -50,7 +56,7 @@ export function GalleryFolders({ folders, onFolderSelect, onRefresh, activeFolde
     try {
       await createGalleryFolderAction(newFolderName.trim());
       setNewFolderName('');
-      onRefresh?.();
+      onCreated?.();
       router.refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to create folder');
@@ -60,19 +66,7 @@ export function GalleryFolders({ folders, onFolderSelect, onRefresh, activeFolde
   };
 
   return (
-    <div>
-      <div className="folder-grid">
-        {folders.map((folder) => (
-          <GalleryFolderCard
-            key={folder.id}
-            folder={folder}
-            active={folder.id === activeFolderId}
-            onSelect={() => onFolderSelect?.(folder.id)}
-            onDelete={() => onRefresh?.()}
-          />
-        ))}
-      </div>
-
+    <div className="folder-create">
       <label className="field-label">New Folder</label>
       <input
         type="text"
@@ -89,19 +83,65 @@ export function GalleryFolders({ folders, onFolderSelect, onRefresh, activeFolde
   );
 }
 
-interface GalleryFolderCardProps {
-  folder: GalleryFolder;
-  onSelect: () => void;
-  onDelete: () => void;
-  active?: boolean;
+export function GalleryFolders({ folders, onRefresh }: GalleryFoldersProps) {
+  const [folderSheetOpen, setFolderSheetOpen] = useState(false);
+
+  // Mobile 📁 FAB -> bottom-sheet folder composer (desktop keeps the inline form)
+  useMobileAction(
+    'composer:folder',
+    React.useCallback(() => setFolderSheetOpen(true), []),
+  );
+
+  return (
+    <div>
+      {folders.length === 0 ? (
+        <div className="empty-state" style={{ marginBottom: '16px' }}>
+          <div className="empty-icon">📁</div>
+          <p>No folders yet</p>
+          <span>Create your first folder to start organizing photos.</span>
+        </div>
+      ) : (
+        <div className="folder-grid">
+          {folders.map((folder) => (
+            <GalleryFolderCard
+              key={folder.id}
+              folder={folder}
+              onDelete={() => onRefresh?.()}
+            />
+          ))}
+        </div>
+      )}
+
+      {/* Desktop inline form — hidden on mobile, replaced by the 📁 FAB sheet */}
+      <div className="hide-mobile">
+        <FolderCreateForm onCreated={() => onRefresh?.()} />
+      </div>
+
+      {folderSheetOpen ? (
+        <MobileSheet title="📁 New Folder" onClose={() => setFolderSheetOpen(false)}>
+          <FolderCreateForm
+            onCreated={() => {
+              setFolderSheetOpen(false);
+              onRefresh?.();
+            }}
+          />
+        </MobileSheet>
+      ) : null}
+    </div>
+  );
 }
 
-export function GalleryFolderCard({ folder, onSelect, onDelete, active }: GalleryFolderCardProps) {
+interface GalleryFolderCardProps {
+  folder: GalleryFolder;
+  onDelete: () => void;
+}
+
+export function GalleryFolderCard({ folder, onDelete }: GalleryFolderCardProps) {
   const router = useRouter();
   const [deleting, setDeleting] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
 
   const handleDelete = async () => {
-    if (!confirm('Delete this folder and all images?')) return;
     setDeleting(true);
     try {
       await deleteGalleryFolderAction(folder.id);
@@ -115,22 +155,37 @@ export function GalleryFolderCard({ folder, onSelect, onDelete, active }: Galler
   };
 
   return (
-    <div onClick={onSelect} className={`folder-card${active ? ' active' : ''}`}>
-      <div className="folder-icon">📁</div>
-      <div className="folder-name">{folder.name}</div>
-      <button
-        type="button"
-        onClick={(e) => {
-          e.stopPropagation();
-          handleDelete();
-        }}
-        disabled={deleting}
-        className="btn-delete"
-        style={{ marginTop: '8px' }}
-      >
-        {deleting ? '...' : '✕'}
-      </button>
-    </div>
+    <>
+      {/* Tapping a folder opens it as its own page: /dashboard/gallery/[folderId] */}
+      <Link href={`/dashboard/gallery/${folder.id}`} prefetch className="folder-card" aria-label={`Open ${folder.name}`}>
+        <div className="folder-icon"><FolderIcon /></div>
+        <div className="folder-name">{folder.name}</div>
+        <button
+          type="button"
+          aria-label={`Delete folder ${folder.name}`}
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            setConfirmOpen(true);
+          }}
+          disabled={deleting}
+          className="btn-delete"
+        >
+          {deleting ? '...' : '✕'}
+        </button>
+      </Link>
+      {confirmOpen ? (
+        <Sheet
+          title="Delete this folder?"
+          description={`"${folder.name}" and all its images will be removed. This can't be undone.`}
+          onClose={() => setConfirmOpen(false)}
+          onConfirm={() => {
+            setConfirmOpen(false);
+            void handleDelete();
+          }}
+        />
+      ) : null}
+    </>
   );
 }
 
@@ -151,6 +206,22 @@ export function GalleryImages({ images, folderId, onRefresh }: GalleryImagesProp
   const [facingMode, setFacingMode] = useState<'environment' | 'user'>('environment');
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const uploadInputRef = useRef<HTMLInputElement>(null);
+
+  const openCamera = React.useCallback(() => {
+    setCameraError('');
+    setFacingMode('environment');
+    setCameraOpen(true);
+  }, []);
+
+  // Mobile FABs (📷 camera / 🖼️ upload inside a folder)
+  useMobileAction('gallery:camera', openCamera);
+  useMobileAction(
+    'gallery:upload',
+    React.useCallback(() => {
+      uploadInputRef.current?.click();
+    }, []),
+  );
 
   const handleImageUpload = async (file: File) => {
     if (!folderId) {
@@ -173,8 +244,9 @@ export function GalleryImages({ images, folderId, onRefresh }: GalleryImagesProp
         throw new Error('Not authenticated');
       }
 
-      const publicUrl = await galleryStorage.upload(file, user.id, folderId);
-      const result = await createGalleryImageAction(folderId, publicUrl, file.name);
+      // Private bucket: upload returns the object path, stored in `file_url`.
+      const storagePath = await galleryStorage.upload(file, user.id, folderId);
+      const result = await createGalleryImageAction(folderId, storagePath, file.name);
       if (!result.success) {
         throw new Error(result.error || 'Upload failed');
       }
@@ -196,8 +268,16 @@ export function GalleryImages({ images, folderId, onRefresh }: GalleryImagesProp
   const initCamera = async (mode: 'environment' | 'user') => {
     try {
       stopStream();
+      if (!navigator.mediaDevices?.getUserMedia) {
+        setCameraError('Camera not supported in this browser. Use the 🖼️ upload button instead.');
+        return;
+      }
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: mode },
+        video: {
+          facingMode: { ideal: mode },
+          width: { ideal: 1280, max: 1920 },
+          height: { ideal: 720, max: 1080 },
+        },
         audio: false,
       });
       streamRef.current = stream;
@@ -205,18 +285,38 @@ export function GalleryImages({ images, folderId, onRefresh }: GalleryImagesProp
         videoRef.current.srcObject = stream;
         await videoRef.current.play().catch(() => {});
       }
-      setCameraError('');
+      if (cameraError) setCameraError('');
     } catch (err) {
+      const name = (err as { name?: string } | null)?.name || '';
       setCameraError(
-        'Camera unavailable. Ensure the page is served over HTTPS and camera permission is granted.',
+        name === 'NotAllowedError'
+          ? 'Camera permission denied. Allow camera access, or use the 🖼️ upload button.'
+          : name === 'NotFoundError'
+            ? 'No camera found on this device. Use the 🖼️ upload button.'
+            : 'Camera unavailable. Ensure the page is served over HTTPS and camera permission is granted.',
       );
     }
   };
 
+  const closeCamera = () => {
+    stopStream();
+    setCameraOpen(false);
+  };
+
   useEffect(() => {
     if (!cameraOpen) return;
+    document.body.style.overflow = 'hidden';
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     initCamera(facingMode);
-    return stopStream;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') closeCamera();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => {
+      stopStream();
+      document.body.style.overflow = '';
+      window.removeEventListener('keydown', onKey);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cameraOpen]);
 
@@ -238,36 +338,60 @@ export function GalleryImages({ images, folderId, onRefresh }: GalleryImagesProp
       if (!blob) return;
       const file = new File([blob], `photo_${Date.now()}.jpg`, { type: 'image/jpeg' });
       await handleImageUpload(file);
+      closeCamera();
     }, 'image/jpeg', 0.92);
-  };
-
-  const closeCamera = () => {
-    stopStream();
-    setCameraOpen(false);
   };
 
   return (
     <div>
-      <div className="upload-zone">
-        <input
-          type="file"
-          multiple
-          accept=".png,.jpg,.jpeg,image/png,image/jpeg"
-          onChange={(e) => {
-            Array.from(e.target.files || []).forEach(handleImageUpload);
-          }}
-          style={{ display: 'none' }}
-          id="image-upload"
-        />
-        <label htmlFor="image-upload" style={{ cursor: 'pointer', display: 'block' }}>
+      {/* Hidden pickers stay mounted so the mobile FABs can trigger them */}
+      <input
+        ref={uploadInputRef}
+        type="file"
+        multiple
+        accept=".png,.jpg,.jpeg,image/png,image/jpeg"
+        onChange={(e) => {
+          Array.from(e.target.files || []).forEach(handleImageUpload);
+          e.target.value = '';
+        }}
+        style={{ display: 'none' }}
+        id="image-upload"
+        aria-hidden="true"
+        tabIndex={-1}
+      />
+      {/* Native camera fallback: on mobile this opens the camera app directly */}
+      <input
+        type="file"
+        accept="image/*"
+        capture="environment"
+        onChange={(e) => {
+          Array.from(e.target.files || []).forEach(handleImageUpload);
+          e.target.value = '';
+        }}
+        style={{ display: 'none' }}
+        id="image-capture"
+        aria-hidden="true"
+        tabIndex={-1}
+      />
+
+      {/* Desktop upload UI — hidden on mobile, replaced by the 🖼️/📷 FABs */}
+      <div className="upload-zone hide-mobile">
+        <label htmlFor="image-upload" className="upload-label">
           <div className="upload-icon">📸</div>
-          <p>Upload to selected folder</p>
-          <span>{uploading ? 'Uploading...' : 'Click or drag images here'}</span>
+          <div className="upload-text">
+            <p>Upload to selected folder</p>
+            <span>{uploading ? 'Uploading...' : 'Click or drag images here'}</span>
+          </div>
         </label>
       </div>
 
-      <div style={{ marginBottom: '16px' }}>
-        <button type="button" className="btn-primary" onClick={() => { setCameraError(''); setFacingMode('environment'); setCameraOpen(true); }} style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
+      <div className="gallery-actions-mobile hide-mobile">
+        <button
+          type="button"
+          className="btn-primary gallery-action-btn"
+          onClick={openCamera}
+          style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
+        >
           📷 Take Photo with Camera
         </button>
       </div>
@@ -290,7 +414,7 @@ export function GalleryImages({ images, folderId, onRefresh }: GalleryImagesProp
               playsInline
               muted
               autoPlay
-              style={{ width: '100%', maxHeight: '50vh', borderRadius: 'var(--radius-sm)', background: '#000', objectFit: 'cover' }}
+              style={{ width: '100%', maxHeight: '60dvh', borderRadius: 'var(--radius-sm)', background: '#000', objectFit: 'contain' }}
             />
             <div className="camera-controls">
               <button type="button" className="btn-primary" onClick={() => initCamera(facingMode === 'environment' ? 'user' : 'environment')}>
@@ -300,6 +424,9 @@ export function GalleryImages({ images, folderId, onRefresh }: GalleryImagesProp
                 {uploading ? 'Saving...' : '📸 Capture'}
               </button>
             </div>
+            <p className="section-sub" style={{ marginTop: '10px' }}>
+              No camera? Use the file picker above — on mobile it opens the camera app directly.
+            </p>
           </div>
         </div>
       ) : null}
@@ -332,9 +459,38 @@ export function GalleryImageCard({ image, onDelete }: GalleryImageCardProps) {
   const router = useRouter();
   const [deleting, setDeleting] = useState(false);
   const [lightbox, setLightbox] = useState(false);
+  const [imgBroken, setImgBroken] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  // Rows pointing at a previous (dead) Supabase project can never load —
+  // don't even attempt the request, show the re-upload placeholder instead.
+  // `stale` arrives pre-computed from the server; the client check covers
+  // absolute URLs that bypassed server signing (e.g. optimistic refreshes).
+  const isStale = image.stale === true || classifyFileUrl(image.file_url) === 'stale';
+  const showPlaceholder = !image.file_url || imgBroken || isStale;
+  // Masonry rhythm: deterministic fallback ratio per photo + intrinsic ratio
+  // once the real file loads (Pinterest-style staggered placement).
+  const [naturalRatio, setNaturalRatio] = useState<string | null>(null);
+  const fallbackRatio = useMemo(() => {
+    const ratios = ['3 / 4', '1 / 1', '4 / 5', '3 / 4', '1 / 1', '4 / 3'];
+    let hash = 0;
+    for (const c of image.id) hash = (hash * 31 + c.charCodeAt(0)) >>> 0;
+    return ratios[hash % ratios.length];
+  }, [image.id]);
+
+  useEffect(() => {
+    if (!lightbox) return;
+    document.body.style.overflow = 'hidden';
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setLightbox(false);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => {
+      document.body.style.overflow = '';
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [lightbox]);
 
   const handleDelete = async () => {
-    if (!confirm('Delete this image?')) return;
     setDeleting(true);
     try {
       await deleteGalleryImageAction(image.id);
@@ -349,20 +505,59 @@ export function GalleryImageCard({ image, onDelete }: GalleryImageCardProps) {
 
   return (
     <>
-      <div className="photo-card" onClick={() => image.file_url && setLightbox(true)}>
-        {image.file_url ? (
-          <Image src={image.file_url} alt={image.title || 'Photo'} width={800} height={800} style={{ width: '100%', height: '100%', objectFit: 'cover' }} unoptimized />
+      <div
+        className="photo-card"
+        style={{ aspectRatio: naturalRatio ?? fallbackRatio }}
+        onClick={() => !showPlaceholder && image.file_url && setLightbox(true)}
+      >
+        {!showPlaceholder && image.file_url ? (
+          <Image
+            src={image.file_url}
+            alt={image.title || 'Photo'}
+            width={800}
+            height={1000}
+            sizes="(max-width: 860px) 50vw, (max-width: 1024px) 33vw, 25vw"
+            style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+            unoptimized
+            onError={() => setImgBroken(true)}
+            onLoad={(e) => {
+              const img = e.currentTarget;
+              if (img.naturalWidth > 0 && img.naturalHeight > 0) {
+                setNaturalRatio(`${img.naturalWidth} / ${img.naturalHeight}`);
+              }
+            }}
+          />
         ) : (
-          <div className="photo-placeholder">🖼️<span>{image.title || 'Image'}</span></div>
+          <div className="photo-placeholder" style={{ height: '100%', minHeight: '120px' }}>
+            🖼️<span>{isStale ? 'Old storage — re-upload this photo' : imgBroken ? 'Could not load — check bucket is Public' : image.title || 'Image'}</span>
+          </div>
         )}
         <div className="photo-overlay">
-          <button type="button" className="btn-delete" onClick={(e) => { e.stopPropagation(); handleDelete(); }} disabled={deleting}>
+          <button
+            type="button"
+            className="btn-delete photo-delete-btn"
+            aria-label="Delete image"
+            onClick={(e) => { e.stopPropagation(); setConfirmOpen(true); }}
+            disabled={deleting}
+            style={{ fontSize: '18px', padding: '8px', minWidth: '44px', minHeight: '44px' }}
+          >
             {deleting ? '...' : '✕'}
           </button>
         </div>
       </div>
+      {confirmOpen ? (
+        <Sheet
+          title="Delete this image?"
+          description="The photo will be removed permanently. This can't be undone."
+          onClose={() => setConfirmOpen(false)}
+          onConfirm={() => {
+            setConfirmOpen(false);
+            void handleDelete();
+          }}
+        />
+      ) : null}
 
-      {lightbox && image.file_url ? (
+      {lightbox && image.file_url && !imgBroken ? (
         <div className="expand-overlay" onClick={() => setLightbox(false)}>
           <button
             type="button"
@@ -373,7 +568,18 @@ export function GalleryImageCard({ image, onDelete }: GalleryImageCardProps) {
             ✕
           </button>
           <div className="expand-lightbox" onClick={(e) => e.stopPropagation()}>
-            <Image src={image.file_url} alt={image.title || 'Photo'} width={1600} height={1600} unoptimized />
+            <Image
+              src={image.file_url}
+              alt={image.title || 'Photo'}
+              width={1600}
+              height={1600}
+              sizes="96vw"
+              unoptimized
+              onError={() => {
+                setImgBroken(true);
+                setLightbox(false);
+              }}
+            />
           </div>
         </div>
       ) : null}
@@ -381,45 +587,4 @@ export function GalleryImageCard({ image, onDelete }: GalleryImageCardProps) {
   );
 }
 
-interface GalleryWorkspaceProps {
-  folders: GalleryFolder[];
-  images: GalleryImage[];
-}
 
-export function GalleryWorkspace({ folders, images }: GalleryWorkspaceProps) {
-  const initialFolderId = folders[0]?.id ?? null;
-  const [selectedFolderId, setSelectedFolderId] = useState<string | null>(initialFolderId);
-
-  const selectedFolder = useMemo(
-    () => folders.find((folder) => folder.id === selectedFolderId) ?? null,
-    [folders, selectedFolderId],
-  );
-
-  const selectedImages = useMemo(
-    () => (selectedFolderId ? images.filter((image) => image.folder_id === selectedFolderId) : []),
-    [images, selectedFolderId],
-  );
-
-  return (
-    <div className="gallery-layout">
-      <div className="panel">
-        <div className="panel-title">📁 Folders</div>
-        <GalleryFolders
-          folders={folders}
-          activeFolderId={selectedFolderId}
-          onFolderSelect={setSelectedFolderId}
-        />
-      </div>
-
-      <div>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
-          <span style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text)' }}>
-            {selectedFolder ? `${selectedFolder.name} Photos` : 'Photos'}
-          </span>
-          <span className="badge badge-cyan">{selectedImages.length} photos</span>
-        </div>
-        <GalleryImages images={selectedImages} folderId={selectedFolderId ?? undefined} />
-      </div>
-    </div>
-  );
-}

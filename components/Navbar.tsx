@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
+import Image from 'next/image';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
@@ -14,24 +15,44 @@ function MobileAccountMenu({
   onLogout: () => void;
 }) {
   const [accountOpen, setAccountOpen] = useState(false);
+  const menuRef = React.useRef<HTMLDivElement>(null);
+
+  React.useEffect(() => {
+    if (!accountOpen) return;
+    const onPointer = (e: PointerEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setAccountOpen(false);
+      }
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setAccountOpen(false);
+    };
+    document.addEventListener('pointerdown', onPointer);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('pointerdown', onPointer);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [accountOpen]);
 
   return (
-    <div className="nav-mobile-account">
+    <div className="nav-mobile-account" ref={menuRef}>
       <button
         type="button"
         className="nav-account-toggle"
         aria-label={accountOpen ? 'Close account menu' : 'Open account menu'}
         aria-expanded={accountOpen}
+        aria-haspopup="menu"
         onClick={() => setAccountOpen((value) => !value)}
       >
         <div className="nav-avatar">{email.slice(0, 1).toUpperCase()}</div>
       </button>
 
       {accountOpen ? (
-        <div className="nav-account-panel">
+        <div className="nav-account-panel" role="menu">
           <div className="nav-user">
             <div className="nav-avatar">{email.slice(0, 1).toUpperCase()}</div>
-            <span>{email}</span>
+            <span title={email}>{email}</span>
           </div>
           <button type="button" className="btn-logout" onClick={onLogout}>
             Logout
@@ -59,7 +80,14 @@ export default function Navbar() {
   return (
     <header className="navbar">
       <Link href="/dashboard" prefetch={true} className="nav-logo" aria-label="PersonalHub Dashboard">
-        <div className="nav-logo-icon">PH</div>
+        <Image
+          src="/icons/logo.png"
+          alt="PersonalHub logo"
+          width={32}
+          height={32}
+          className="nav-logo-img"
+          priority
+        />
         <span>PersonalHub</span>
       </Link>
 

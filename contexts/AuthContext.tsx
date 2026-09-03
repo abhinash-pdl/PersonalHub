@@ -3,7 +3,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState, ReactNode } from 'react';
 import { User } from '@supabase/supabase-js';
 import { signInAction, signOutAction, signUpAction } from '@/app/actions';
-import { getSupabaseClient } from '@/lib/supabase';
+import { getCachedUser, getSupabaseClient, withAuthRetry } from '@/lib/supabase';
 
 interface AuthContextType {
   user: User | null;
@@ -28,30 +28,36 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
+    let cancelled = false;
     const checkAuth = async () => {
       try {
-        const { data, error } = await getSupabaseClient().auth.getUser();
-        if (error && (error.message.includes('Invalid Refresh Token') || error.message.includes('Refresh Token Not Found'))) {
-          await clearLocalSession();
-          setUser(null);
-          return;
-        }
-
-        setUser(data.user || null);
+        // Single shared cached lookup with lock retry — avoids Navigator
+        // LockManager contention with Music/Dashboard providers.
+        const cached = await getCachedUser();
+        if (!cancelled) setUser(cached);
       } catch (error) {
         const message = String((error as { message?: unknown } | null | undefined)?.message || error);
         if (message.includes('Invalid Refresh Token') || message.includes('Refresh Token Not Found')) {
           await clearLocalSession();
-          setUser(null);
+          if (!cancelled) setUser(null);
         } else {
           console.error('Auth check error:', error);
         }
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     };
 
     checkAuth();
+
+    // Keep in sync without extra getUser() calls
+    const { data: { subscription } } = getSupabaseClient().auth.onAuthStateChange((_event, session) => {
+      if (!cancelled) setUser(session?.user ?? null);
+    });
+    return () => {
+      cancelled = true;
+      subscription.unsubscribe();
+    };
   }, [clearLocalSession]);
 
   const login = useCallback(async (email: string, password: string) => {
@@ -60,11 +66,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const result = await signInAction(email, password);
       if (!result.success) throw new Error(result.error || 'Login failed');
 
-      if (result.session) {
-        await getSupabaseClient().auth.setSession({
-          access_token: result.session.access_token,
-          refresh_token: result.session.refresh_token,
-        });
+      const session = result.session;
+      if (session) {
+        const { access_token, refresh_token } = session;
+        await withAuthRetry(() => getSupabaseClient().auth.setSession({
+          access_token,
+          refresh_token,
+        }));
       }
 
       setUser(result.user);
@@ -79,11 +87,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const result = await signUpAction(email, password);
       if (!result.success) throw new Error(result.error || 'Signup failed');
 
-      if (result.session) {
-        await getSupabaseClient().auth.setSession({
-          access_token: result.session.access_token,
-          refresh_token: result.session.refresh_token,
-        });
+      const session = result.session;
+      if (session) {
+        const { access_token, refresh_token } = session;
+        await withAuthRetry(() => getSupabaseClient().auth.setSession({
+          access_token,
+          refresh_token,
+        }));
       }
 
       setUser(result.user);

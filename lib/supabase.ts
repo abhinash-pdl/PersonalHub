@@ -6,6 +6,162 @@ const BUCKET_GALLERY = 'gallery-images';
 
 let supabaseClient: SupabaseClient | null = null;
 
+// --- Media reference guards: buckets are PRIVATE, so `file_url` holds either a
+// storage PATH (new uploads) or a legacy absolute URL. Old rows may also hold
+// file:// or empty values.
+export function isPlayableHttpUrl(value: unknown): value is string {
+  if (typeof value !== 'string') return false;
+  const v = value.trim();
+  if (!v) return false;
+  if (/^(file:|blob:|data:)/i.test(v)) return false;
+  return /^https?:\/\//i.test(v);
+}
+
+const STORAGE_PATH_RE = /^[A-Za-z0-9_][A-Za-z0-9_.\-/]*\.[A-Za-z0-9]{2,5}$/;
+
+/** Bare private-bucket object path, e.g. `<userId>/123_abc_track.mp3`. */
+export function isStoragePath(value: unknown): value is string {
+  if (typeof value !== 'string') return false;
+  const v = value.trim();
+  if (!v || v.length > 512 || !v.includes('/')) return false;
+  if (/[\s:]/.test(v)) return false;
+  return STORAGE_PATH_RE.test(v);
+}
+
+function getCurrentProjectHost(): string | null {
+  try {
+    const base = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    if (!base) return null;
+    return new URL(base).host;
+  } catch {
+    return null;
+  }
+}
+
+export type UrlState = 'current' | 'external' | 'stale' | 'invalid';
+
+/**
+ * Classify a stored file reference.
+ * - 'stale': absolute URL pointing at a *different* Supabase project
+ *   (project moved, old host dead). Never attempt loading — show re-upload UI.
+ * - 'external': non-Supabase http(s) URL, safe to try loading.
+ * - 'current': this project's private storage (bare path or current-host URL).
+ *   Resolve via signed URL before loading.
+ * - 'invalid': empty / file:// / blob: / data: / other.
+ */
+export function classifyFileUrl(value: unknown): UrlState {
+  if (isStoragePath(value)) return 'current';
+  if (!isPlayableHttpUrl(value)) return 'invalid';
+  let host: string;
+  try {
+    host = new URL(value as string).host;
+  } catch {
+    return 'invalid';
+  }
+  if (!host.endsWith('.supabase.co')) return 'external';
+  const current = getCurrentProjectHost();
+  if (!current) return 'current';
+  return host === current ? 'current' : 'stale';
+}
+
+/** Loadable in a player/<img>: current-project or external URLs only. */
+export function isLoadableFileUrl(value: unknown): value is string {
+  const state = classifyFileUrl(value);
+  return state === 'current' || state === 'external';
+}
+
+// --- Private-bucket signed URLs -------------------------------------------
+const SIGNED_URL_TTL_SECONDS = 60 * 60 * 24 * 7; // 7 days
+const signedUrlCache = new Map<string, { url: string; expiresAt: number }>();
+
+/**
+ * Extract the object path for `bucket` from a stored reference.
+ * Accepts bare paths and absolute Supabase URLs
+ * (`/storage/v1/object/public|sign|authenticated/<bucket>/<path>`).
+ * Returns null for stale-host URLs and anything unparseable.
+ */
+export function extractStorageRef(bucket: string, stored: unknown): string | null {
+  if (isStoragePath(stored)) return (stored as string).trim();
+  if (typeof stored !== 'string') return null;
+  const v = stored.trim();
+  if (!v) return null;
+  const m = v.match(/\/storage\/v1\/object\/(?:public|sign|authenticated)\/([^/?#]+)\/(.+?)(?:[?#]|$)/);
+  if (!m || m[1] !== bucket) return null;
+  // Refuse cross-project URLs: those files were never migrated.
+  if (/^https?:\/\//i.test(v)) {
+    let host = '';
+    try {
+      host = new URL(v).host;
+    } catch {
+      return null;
+    }
+    const current = getCurrentProjectHost();
+    if (host.endsWith('.supabase.co') && current && host !== current) return null;
+  }
+  try {
+    return decodeURIComponent(m[2]);
+  } catch {
+    return m[2];
+  }
+}
+
+async function createSignedUrl(bucket: string, stored: unknown): Promise<string | null> {
+  const path = extractStorageRef(bucket, stored);
+  if (!path) return null;
+  const key = `${bucket}:${path}`;
+  const cached = signedUrlCache.get(key);
+  if (cached && Date.now() < cached.expiresAt - 10 * 60 * 1000) return cached.url;
+  const { data, error } = await getSupabaseClient()
+    .storage.from(bucket)
+    .createSignedUrl(path, SIGNED_URL_TTL_SECONDS);
+  if (error || !data?.signedUrl) return null;
+  signedUrlCache.set(key, { url: data.signedUrl, expiresAt: Date.now() + SIGNED_URL_TTL_SECONDS * 1000 });
+  return data.signedUrl;
+}
+
+/** Resolve a stored music `file_url` (path or URL) to a playable signed URL. */
+export function resolveMusicUrl(stored: unknown): Promise<string | null> {
+  if (typeof stored === 'string' && classifyFileUrl(stored) === 'external') return Promise.resolve(stored);
+  return createSignedUrl(BUCKET_MUSIC, stored);
+}
+
+/** Resolve a stored gallery `file_url` (path or URL) to a viewable signed URL. */
+export function resolveImageUrl(stored: unknown): Promise<string | null> {
+  if (typeof stored === 'string' && classifyFileUrl(stored) === 'external') return Promise.resolve(stored);
+  return createSignedUrl(BUCKET_GALLERY, stored);
+}
+
+/** Drop a cached signed URL (e.g. after delete). */
+export function dropCachedMediaUrl(bucket: 'music' | 'gallery', stored: unknown) {
+  const path = extractStorageRef(bucket === 'music' ? BUCKET_MUSIC : BUCKET_GALLERY, stored);
+  if (path) signedUrlCache.delete(`${bucket === 'music' ? BUCKET_MUSIC : BUCKET_GALLERY}:${path}`);
+}
+
+function isLockError(error: unknown) {
+  const message = String((error as { message?: unknown } | null | undefined)?.message || error);
+  return (
+    message.includes('LockAcquireTimeoutError') ||
+    message.includes('NavigatorLockAcquireTimeoutError') ||
+    message.includes('Acquiring an exclusive Navigator LockManager lock')
+  );
+}
+
+/** Retry helper for Supabase auth calls that can lose the Navigator Lock race. */
+export async function withAuthRetry<T>(fn: () => Promise<T>, retries = 3): Promise<T> {
+  let lastError: unknown = null;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      return await fn();
+    } catch (error) {
+      lastError = error;
+      if (!isLockError(error) || attempt === retries) throw error;
+      const delay = 150 * 2 ** attempt + Math.random() * 100;
+      await new Promise((r) => setTimeout(r, delay));
+    }
+  }
+  throw lastError;
+}
+
 // --- Cached user to avoid redundant auth.getUser() calls ---
 let cachedUser: User | null = null;
 let userFetchPromise: Promise<User | null> | null = null;
@@ -38,7 +194,7 @@ export async function getCachedUser(): Promise<User | null> {
 
   userFetchPromise = (async () => {
     try {
-      const { data, error } = await getSupabaseClient().auth.getUser();
+      const { data, error } = await withAuthRetry(() => getSupabaseClient().auth.getUser());
       if (error && isInvalidRefreshTokenError(error)) {
         await clearLocalSession();
         return null;
@@ -52,6 +208,8 @@ export async function getCachedUser(): Promise<User | null> {
         await clearLocalSession();
         return null;
       }
+      // Lock contention: keep previous cache instead of crashing callers
+      if (isLockError(error) && cachedUser) return cachedUser;
       throw error;
     } finally {
       userFetchPromise = null;
@@ -123,35 +281,34 @@ export function clearDataCache() {
 }
 
 /**
- * Simple select: try ordering by `created_at`, fall back to no ordering in ONE query.
- * Never makes more than 2 requests.
+ * Simple select with per-table ordering preference, then no ordering.
+ * The order columns are tried in sequence — pass the known timestamp column
+ * first so no failed (400) probe request is ever sent. Max 3 requests.
  */
 async function smartSelect(
   table: string,
   selectCols = '*',
   filters: Array<[string, unknown]> = [],
+  orderCols: string[] = ['created_at', 'uploaded_at'],
 ) {
   const client = getSupabaseClient();
 
-  // First try with created_at ordering
-  let builder = client.from(table).select(selectCols);
-  for (const [k, v] of filters) builder = builder.eq(k, v);
-  const res = await builder.order('created_at', { ascending: false });
-
-  if (res.error) {
+  for (const col of orderCols) {
+    let builder = client.from(table).select(selectCols);
+    for (const [k, v] of filters) builder = builder.eq(k, v);
+    const res = await builder.order(col, { ascending: false });
+    if (!res.error) return res.data || [];
     const code = (res.error as unknown as { code?: string }).code;
-    // Column doesn't exist — retry without ordering (single extra request)
-    if (code === '42703') {
-      let fb = client.from(table).select(selectCols);
-      for (const [k, v] of filters) fb = fb.eq(k, v);
-      const fbRes = await fb;
-      if (fbRes.error) throw fbRes.error;
-      return fbRes.data || [];
-    }
-    throw res.error;
+    // Column doesn't exist — try the next ordering. Anything else is real.
+    if (code !== '42703' && code !== '42P01' && code) throw res.error;
   }
 
-  return res.data || [];
+  // Still failing (or no order column worked) — try with no ordering at all
+  let plain = client.from(table).select(selectCols);
+  for (const [k, v] of filters) plain = plain.eq(k, v);
+  const plainRes = await plain;
+  if (plainRes.error) throw plainRes.error;
+  return plainRes.data || [];
 }
 
 function safeStorageSegment(value: string) {
@@ -204,7 +361,7 @@ export const auth = {
   },
 
   async getSession() {
-    const { data } = await getSupabaseClient().auth.getSession();
+    const { data } = await withAuthRetry(() => getSupabaseClient().auth.getSession());
     return data.session;
   },
 
@@ -323,7 +480,9 @@ export const music = {
 };
 
 /**
- * Storage Functions for Music Files
+ * Storage Functions for Music Files (PRIVATE bucket).
+ * Uploads return the object PATH — callers store it in `file_url` and the
+ * player resolves a signed URL at play time via resolveMusicUrl().
  */
 export const musicStorage = {
   async upload(file: File, userId: string): Promise<string> {
@@ -334,10 +493,8 @@ export const musicStorage = {
     const { error } = await getSupabaseClient().storage.from(BUCKET_MUSIC).upload(fileName, file);
     if (error) throw new Error(`Failed to upload music file: ${error.message}`);
 
-    const { data } = getSupabaseClient().storage.from(BUCKET_MUSIC).getPublicUrl(fileName);
-    if (!data.publicUrl) throw new Error('Failed to generate public URL for music file');
     invalidateCache('music_tracks');
-    return data.publicUrl;
+    return fileName;
   },
 
   async delete(filePath: string) {
@@ -399,7 +556,9 @@ export const gallery = {
     const cached = getCachedData(key);
     if (cached) return cached;
 
-    const data = await smartSelect('gallery_images', '*', [['folder_id', folderId], ['user_id', user.id]]);
+    // gallery_images has uploaded_at (no created_at) — order by it first so no
+    // failed probe request is sent.
+    const data = await smartSelect('gallery_images', '*', [['folder_id', folderId], ['user_id', user.id]], ['uploaded_at', 'created_at']);
     const rows = Array.isArray(data) ? (data as unknown[]) : [];
     const normalized = rows.map((rowUnknown) => {
       const row = (rowUnknown ?? {}) as Record<string, unknown>;
@@ -428,7 +587,7 @@ export const gallery = {
     const cached = getCachedData(key);
     if (cached) return cached;
 
-    const data = await smartSelect('gallery_images', '*', [['user_id', user.id]]);
+    const data = await smartSelect('gallery_images', '*', [['user_id', user.id]], ['uploaded_at', 'created_at']);
     const rows = Array.isArray(data) ? (data as unknown[]) : [];
     const normalized = rows.map((rowUnknown) => {
       const row = (rowUnknown ?? {}) as Record<string, unknown>;
@@ -522,7 +681,9 @@ export const gallery = {
 };
 
 /**
- * Storage Functions for Gallery Images
+ * Storage Functions for Gallery Images (PRIVATE bucket).
+ * Uploads return the object PATH — callers store it in `file_url` and views
+ * resolve a signed URL via resolveImageUrl() (client) or server-side signing.
  */
 export const galleryStorage = {
   async upload(file: File, userId: string, folderId: string): Promise<string> {
@@ -531,14 +692,16 @@ export const galleryStorage = {
     if (!allowed.includes(ext)) {
       throw new Error('Only PNG and JPG/JPEG images are allowed');
     }
-    const fileName = `${userId}/${folderId}/${Date.now()}_${file.name}`;
-    const { error } = await getSupabaseClient().storage.from(BUCKET_GALLERY).upload(fileName, file);
+    const base = file.name.slice(0, -ext.length) || 'photo';
+    const safeBase = safeStorageSegment(base) || 'photo';
+    const fileName = `${safeStorageSegment(userId)}/${safeStorageSegment(folderId)}/${Date.now()}_${safeBase}${ext}`;
+    const { error } = await getSupabaseClient().storage.from(BUCKET_GALLERY).upload(fileName, file, {
+      contentType: file.type || undefined,
+    });
     if (error) throw new Error(`Failed to upload gallery image: ${error.message}`);
 
-    const { data } = getSupabaseClient().storage.from(BUCKET_GALLERY).getPublicUrl(fileName);
-    if (!data.publicUrl) throw new Error('Failed to generate public URL for gallery image');
     invalidateCache('gallery_images');
-    return data.publicUrl;
+    return fileName;
   },
 
   async delete(filePath: string) {

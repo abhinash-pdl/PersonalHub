@@ -26,8 +26,8 @@ export default function AppNav({
             className={`${variant === 'bottom' ? 'mobile-bottom-nav-link' : 'nav-link'}${active ? ' active' : ''}`}
             aria-current={active ? 'page' : undefined}
           >
-            <Icon className="nav-icon" />
-            <span>{link.label}</span>
+            <Icon className={variant === 'bottom' ? 'mobile-bottom-nav-icon' : 'nav-icon'} />
+            <span className={variant === 'bottom' ? 'mobile-bottom-nav-label' : undefined}>{link.label}</span>
           </Link>
         );
       })}

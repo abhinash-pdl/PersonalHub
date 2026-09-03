@@ -216,8 +216,8 @@ export function MusicUpload({ onUploadComplete }: MusicUploadProps) {
         throw new Error('Not authenticated');
       }
 
-      const publicUrl = await musicStorage.upload(file, user.id);
-      const result = await createMusicTrackAction(title, 'Unknown Artist', publicUrl);
+      const storagePath = await musicStorage.upload(file, user.id);
+      const result = await createMusicTrackAction(title, 'Unknown Artist', storagePath);
       if (!result.success) {
         throw new Error(result.error || 'Upload failed');
       }

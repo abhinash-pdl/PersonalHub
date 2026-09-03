@@ -1,6 +1,7 @@
 import React, { Suspense } from 'react';
 import { fetchLetters } from '@/lib/server-data';
 import { LetterCard, LetterEditor } from '@/components/LettersView';
+import { LetterComposerSheet } from '@/components/MobileComposers';
 
 export const dynamic = 'force-dynamic';
 
@@ -16,7 +17,8 @@ export default async function LettersPage() {
       </div>
 
       <div className="letters-layout">
-        <div className="panel">
+        {/* Desktop inline composer — hidden on mobile, replaced by the ✉️ FAB sheet */}
+        <div className="panel hide-mobile">
           <div className="panel-title">✍️ Write Letter</div>
           <LetterEditor />
         </div>
@@ -27,6 +29,9 @@ export default async function LettersPage() {
           </Suspense>
         </div>
       </div>
+
+      {/* Mobile-only bottom-sheet composer, opened by the ✉️ FAB */}
+      <LetterComposerSheet />
     </div>
   );
 }

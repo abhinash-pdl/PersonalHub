@@ -1,12 +1,16 @@
 import React from 'react';
-import { GalleryWorkspace } from '@/components/GalleryManager';
-import { fetchGalleryFolders, fetchAllGalleryImages } from '@/lib/server-data';
+import { GalleryFolders } from '@/components/GalleryManager';
+import { FolderIcon } from '@/components/icons';
+import { fetchGalleryFolders } from '@/lib/server-data';
 
 export const dynamic = 'force-dynamic';
 
+/**
+ * Folders-first gallery: pick (or create) a folder, tap to open it.
+ * Photos live on /dashboard/gallery/[folderId].
+ */
 export default async function GalleryPage() {
   const folders = await fetchGalleryFolders();
-  const images = await fetchAllGalleryImages();
 
   return (
     <div>
@@ -14,10 +18,13 @@ export default async function GalleryPage() {
         <div className="section-icon" style={{ background: 'var(--surface2)' }}>▣</div>
         <div>
           <div className="section-title">Gallery</div>
-          <div className="section-sub">Organize and view your photos</div>
+          <div className="section-sub">Choose a folder to view and add photos</div>
         </div>
       </div>
-      <GalleryWorkspace folders={folders} images={images} />
+      <div className="panel">
+        <div className="panel-title"><FolderIcon /> Folders</div>
+        <GalleryFolders folders={folders} />
+      </div>
     </div>
   );
 }

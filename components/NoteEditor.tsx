@@ -2,6 +2,7 @@
 
 import React, { useState } from 'react';
 import { createNoteAction, deleteNoteAction, updateNoteAction } from '@/app/actions';
+import { useDashboardData } from '@/contexts/DashboardDataContext';
 import { useRouter } from 'next/navigation';
 
 interface Note {
@@ -19,6 +20,7 @@ interface NoteEditorProps {
 
 export function NoteEditor({ initialNote, onSave, onCancel }: NoteEditorProps) {
   const router = useRouter();
+  const { refresh } = useDashboardData();
   const [title, setTitle] = useState(initialNote?.title || '');
   const [content, setContent] = useState(initialNote?.content || '');
   const [loading, setLoading] = useState(false);
@@ -34,14 +36,19 @@ export function NoteEditor({ initialNote, onSave, onCancel }: NoteEditorProps) {
     setError('');
 
     try {
-      if (initialNote) {
-        await updateNoteAction(initialNote.id, title, content);
-      } else {
-        await createNoteAction(title, content);
+      // Server actions resolve { success } instead of throwing — a failed
+      // insert must surface, not silently clear the form.
+      const result = initialNote
+        ? await updateNoteAction(initialNote.id, title, content)
+        : await createNoteAction(title, content);
+      if (!result.success) {
+        throw new Error(result.error || 'Failed to save note');
       }
       setTitle('');
       setContent('');
       onSave?.();
+      // NotesGrid reads client-side context (not server props), so refresh it.
+      await refresh();
       router.refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to save note');
@@ -113,7 +120,10 @@ export function NoteItem({ note, onSelect, onDelete }: NoteItemProps) {
     if (!confirm('Delete this note?')) return;
     setDeleting(true);
     try {
-      await deleteNoteAction(note.id);
+      const result = await deleteNoteAction(note.id);
+      if (!result.success) {
+        throw new Error(result.error || 'Failed to delete note');
+      }
       onDelete?.(note.id);
       router.refresh();
     } catch (error) {
@@ -147,11 +157,14 @@ export function NoteItem({ note, onSelect, onDelete }: NoteItemProps) {
     setSaving(true);
     setError('');
     try {
-      await updateNoteAction(note.id, title, content);
-      note.title = title;
-      note.content = content;
+      const result = await updateNoteAction(note.id, title, content);
+      if (!result.success) {
+        throw new Error(result.error || 'Failed to update note');
+      }
       setEditing(false);
-      onSelect?.(note);
+      // Close so reopening reads fresh props (local edit state is stale after save)
+      setExpanded(false);
+      onSelect?.({ ...note, title, content });
       router.refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to update note');

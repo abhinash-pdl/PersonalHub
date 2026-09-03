@@ -63,8 +63,20 @@ function MusicProgress() {
   );
 }
 
+const REPEAT_LABEL: Record<string, string> = {
+  all: 'Repeat all (loop playlist)',
+  one: 'Repeat one (loop current track)',
+  off: 'Repeat off',
+};
+
+const REPEAT_ICON: Record<string, string> = {
+  all: '🔁',
+  one: '🔂',
+  off: '🔁',
+};
+
 export default function MusicBar() {
-  const { currentTrack, isPlaying, togglePlay, prev, next } = useMusicPlayer();
+  const { currentTrack, isPlaying, togglePlay, prev, next, repeatMode, cycleRepeat } = useMusicPlayer();
 
   if (!currentTrack) return null;
 
@@ -87,6 +99,17 @@ export default function MusicBar() {
         </button>
         <button type="button" className="ctrl-btn" title="Next" onClick={next}>
           <NextIcon />
+        </button>
+        <button
+          type="button"
+          className="ctrl-btn"
+          title={REPEAT_LABEL[repeatMode]}
+          aria-label={REPEAT_LABEL[repeatMode]}
+          aria-pressed={repeatMode !== 'off'}
+          onClick={cycleRepeat}
+          style={repeatMode === 'off' ? { opacity: 0.45 } : undefined}
+        >
+          <span aria-hidden="true" style={{ fontSize: '15px', lineHeight: 1 }}>{REPEAT_ICON[repeatMode]}</span>
         </button>
       </div>
 

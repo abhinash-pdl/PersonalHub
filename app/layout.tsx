@@ -7,12 +7,16 @@ const sora = Sora({
   variable: "--font-sora",
   subsets: ["latin"],
   weight: ["300", "400", "500", "600", "700", "800"],
+  // Unused weights were preloaded but never used (console warnings) —
+  // load font files on demand instead.
+  preload: false,
 });
 
 const dmMono = DM_Mono({
   variable: "--font-dm-mono",
   subsets: ["latin"],
   weight: ["300", "400", "500"],
+  preload: false,
 });
 
 export const metadata: Metadata = {
@@ -27,6 +31,9 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
   themeColor: "#090707",
 };
 

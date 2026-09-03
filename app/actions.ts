@@ -298,6 +298,26 @@ export async function createMusicTrackAction(title: string, artist: string, file
 }
 
 /**
+ * Extract a private-bucket object path from a stored `file_url` (bare path or
+ * absolute Supabase URL). Used to clean up storage objects on delete.
+ */
+function extractBucketPath(stored: unknown, bucket: string): string | null {
+  if (typeof stored !== 'string') return null;
+  const v = stored.trim();
+  if (!v || /^(file:|blob:|data:)/i.test(v)) return null;
+  if (!/^https?:\/\//i.test(v)) {
+    return v.includes('/') && !/[\s:]/.test(v) ? v : null;
+  }
+  const m = v.match(/\/storage\/v1\/object\/(?:public|sign|authenticated)\/([^/?#]+)\/(.+?)(?:[?#]|$)/);
+  if (!m || m[1] !== bucket) return null;
+  try {
+    return decodeURIComponent(m[2]);
+  } catch {
+    return m[2];
+  }
+}
+
+/**
  * Delete a music track (server-side validation)
  */
 export async function deleteMusicTrackAction(id: string) {
@@ -322,6 +342,13 @@ export async function deleteMusicTrackAction(id: string) {
       },
     );
 
+    const { data: row } = await supabase
+      .from('music_tracks')
+      .select('file_url')
+      .eq('id', id)
+      .eq('user_id', user.id)
+      .single();
+
     const { error } = await supabase
       .from('music_tracks')
       .delete()
@@ -329,6 +356,13 @@ export async function deleteMusicTrackAction(id: string) {
       .eq('user_id', user.id);
 
     if (error) throw error;
+
+    // Best-effort: remove the private-bucket object too (never fails the delete)
+    const path = extractBucketPath((row as { file_url?: unknown } | null)?.file_url, 'music-files');
+    if (path) {
+      await supabase.storage.from('music-files').remove([path]);
+    }
+
     revalidateDashboard(['/dashboard/music']);
     return { success: true };
   } catch (error) {
@@ -404,6 +438,13 @@ export async function deleteGalleryFolderAction(id: string) {
       },
     );
 
+    // Collect the folder's image refs first so storage objects can be cleaned up
+    const { data: imageRows } = await supabase
+      .from('gallery_images')
+      .select('id,file_url')
+      .eq('folder_id', id)
+      .eq('user_id', user.id);
+
     const { error } = await supabase
       .from('gallery_folders')
       .delete()
@@ -411,6 +452,23 @@ export async function deleteGalleryFolderAction(id: string) {
       .eq('user_id', user.id);
 
     if (error) throw error;
+
+    // Best-effort cleanup of orphaned rows + private-bucket objects
+    const rows = Array.isArray(imageRows) ? imageRows : [];
+    if (rows.length > 0) {
+      await supabase
+        .from('gallery_images')
+        .delete()
+        .eq('folder_id', id)
+        .eq('user_id', user.id);
+      const paths = rows
+        .map((r) => extractBucketPath((r as { file_url?: unknown }).file_url, 'gallery-images'))
+        .filter((p): p is string => !!p);
+      if (paths.length > 0) {
+        await supabase.storage.from('gallery-images').remove(paths);
+      }
+    }
+
     revalidateDashboard(['/dashboard/gallery']);
     return { success: true };
   } catch (error) {
@@ -427,7 +485,6 @@ export async function createGalleryImageAction(
   _title?: string,
 ) {
   try {
-    void _title;
     if (!folder_id) {
       return { success: false, error: 'Folder is required' };
     }
@@ -452,8 +509,9 @@ export async function createGalleryImageAction(
       },
     );
 
+    const title = _title?.trim() ? _title.trim().slice(0, 200) : null;
     const payloads = [
-      { folder_id, file_url, user_id: user.id },
+      { folder_id, file_url: file_url.trim(), title, user_id: user.id },
       { folder_id, file_url: file_url.trim(), user_id: user.id },
     ];
 
@@ -500,6 +558,13 @@ export async function deleteGalleryImageAction(id: string) {
       },
     );
 
+    const { data: row } = await supabase
+      .from('gallery_images')
+      .select('file_url')
+      .eq('id', id)
+      .eq('user_id', user.id)
+      .single();
+
     const { error } = await supabase
       .from('gallery_images')
       .delete()
@@ -507,6 +572,13 @@ export async function deleteGalleryImageAction(id: string) {
       .eq('user_id', user.id);
 
     if (error) throw error;
+
+    // Best-effort: remove the private-bucket object too (never fails the delete)
+    const path = extractBucketPath((row as { file_url?: unknown } | null)?.file_url, 'gallery-images');
+    if (path) {
+      await supabase.storage.from('gallery-images').remove([path]);
+    }
+
     revalidateDashboard(['/dashboard/gallery']);
     return { success: true };
   } catch (error) {
