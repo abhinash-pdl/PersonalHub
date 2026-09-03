@@ -1,19 +1,19 @@
 export default function DashboardLoading() {
   return (
-    <div className="space-y-6">
-      <div className="section-header">
-        <div className="section-icon" style={{ background: 'rgba(255,255,255,0.08)' }} />
-        <div className="space-y-2">
-          <div className="h-4 w-28 rounded bg-white/10" />
-          <div className="h-3 w-64 rounded bg-white/5" />
+    <div style={{ display: 'grid', gap: 24 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        <div style={{ width: 42, height: 42, borderRadius: 12, background: 'var(--surface2)' }} />
+        <div style={{ display: 'grid', gap: 8 }}>
+          <div style={{ width: 112, height: 16, borderRadius: 4, background: 'var(--surface2)' }} />
+          <div style={{ width: 256, height: 12, borderRadius: 4, background: 'var(--surface)' }} />
         </div>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+      <div style={{ display: 'grid', gap: 16, gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))' }}>
         {Array.from({ length: 4 }).map((_, index) => (
-          <div key={index} className="rounded-2xl border border-white/10 bg-white/5 p-5">
-            <div className="h-5 w-20 rounded bg-white/10" />
-            <div className="mt-4 h-10 rounded bg-white/8" />
+          <div key={index} style={{ borderRadius: 12, border: '1px solid var(--border)', background: 'var(--surface)', padding: 20 }}>
+            <div style={{ width: 80, height: 20, borderRadius: 4, background: 'var(--surface2)', marginBottom: 16 }} />
+            <div style={{ width: 160, height: 40, borderRadius: 4, background: 'var(--surface2)' }} />
           </div>
         ))}
       </div>

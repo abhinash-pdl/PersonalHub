@@ -5,6 +5,7 @@ import React, {
   useCallback,
   useContext,
   useEffect,
+  useMemo,
   useRef,
   useState,
   ReactNode,
@@ -36,47 +37,100 @@ function normalizeTrack(row: Record<string, unknown>): MusicTrack {
   };
 }
 
-interface MusicContextType {
+type ProgressListener = (currentTime: number, duration: number) => void;
+
+// --- Library context (tracks, loading) — updates rarely ---
+interface MusicLibraryContextType {
   tracks: MusicTrack[];
-  currentTrack: MusicTrack | null;
-  isPlaying: boolean;
-  currentTime: number;
-  duration: number;
   loading: boolean;
   error: string;
+  refreshTracks: () => Promise<void>;
+  upsertTrack: (track: MusicTrack) => void;
+}
+
+const MusicLibraryContext = createContext<MusicLibraryContextType | undefined>(undefined);
+
+// --- Player context (current track, playback controls) — updates frequently ---
+interface MusicPlayerContextType {
+  currentTrack: MusicTrack | null;
+  isPlaying: boolean;
+  duration: number;
   playTrack: (track: MusicTrack) => void;
   togglePlay: () => void;
   seek: (time: number) => void;
   next: () => void;
   prev: () => void;
-  refreshTracks: () => Promise<void>;
-  upsertTrack: (track: MusicTrack) => void;
   stop: () => void;
+  subscribeProgress: (listener: ProgressListener) => () => void;
 }
 
-const MusicContext = createContext<MusicContextType | undefined>(undefined);
+const MusicPlayerContext = createContext<MusicPlayerContextType | undefined>(undefined);
+
+const STORAGE_TRACK_ID = 'ph:music:last-track-id';
+
+function readSavedTrackId(): string | null {
+  try {
+    return window.localStorage.getItem(STORAGE_TRACK_ID);
+  } catch {
+    return null;
+  }
+}
+
+function writeSavedTrackId(id: string) {
+  try {
+    window.localStorage.setItem(STORAGE_TRACK_ID, id);
+  } catch {
+    // ignore
+  }
+}
 
 export function MusicProvider({ children }: { children: ReactNode }) {
+  // --- Library state (rarely changes) ---
   const [tracks, setTracks] = useState<MusicTrack[]>([]);
-  const [currentTrack, setCurrentTrack] = useState<MusicTrack | null>(null);
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [currentTime, setCurrentTime] = useState(0);
-  const [duration, setDuration] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const audioRef = useRef<HTMLAudioElement | null>(null);
-  const hasBootstrappedAutoplay = useRef(false);
-  const [waitingForGesture, setWaitingForGesture] = useState(false);
-  const STORAGE_TRACK_ID = 'ph:music:last-track-id';
 
+  // --- Player state ---
+  const [currentTrack, setCurrentTrack] = useState<MusicTrack | null>(null);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [duration, setDuration] = useState(0);
+
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const tracksRef = useRef<MusicTrack[]>([]);
+  const currentTrackRef = useRef<MusicTrack | null>(null);
+  const progressListenersRef = useRef(new Set<ProgressListener>());
+  const durationRef = useRef(0);
+  const lastProgressEmitRef = useRef(0);
+  const hasInitialized = useRef(false);
+
+  // Keep refs in sync via effect to avoid ref-during-render lint errors
+  useEffect(() => {
+    tracksRef.current = tracks;
+    currentTrackRef.current = currentTrack;
+  });
+
+  const emitProgress = useCallback((time: number, total: number, force = false) => {
+    const now = performance.now();
+    if (!force && now - lastProgressEmitRef.current < 200) return;
+    lastProgressEmitRef.current = now;
+    progressListenersRef.current.forEach((listener) => listener(time, total));
+  }, []);
+
+  const subscribeProgress = useCallback((listener: ProgressListener) => {
+    progressListenersRef.current.add(listener);
+    return () => {
+      progressListenersRef.current.delete(listener);
+    };
+  }, []);
+
+  // --- Library actions ---
   const refreshTracks = useCallback(async () => {
     try {
       setLoading(true);
       setError('');
       const data = await music.getAll();
       const rows = Array.isArray(data) ? (data as unknown[]) : [];
-      const list = rows.map((row) => normalizeTrack(row as Record<string, unknown>));
-      setTracks(list);
+      setTracks(rows.map((row) => normalizeTrack(row as Record<string, unknown>)));
     } catch (err: unknown) {
       console.error('Error loading tracks:', err);
       setError(err instanceof Error ? err.message : 'Failed to load tracks');
@@ -86,106 +140,59 @@ export function MusicProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const upsertTrack = useCallback((track: MusicTrack) => {
-    setTracks((currentTracks) => [
-      track,
-      ...currentTracks.filter((existingTrack) => existingTrack.id !== track.id),
-    ]);
+    setTracks((prev) => [track, ...prev.filter((t) => t.id !== track.id)]);
   }, []);
 
-  useEffect(() => {
-    refreshTracks();
-  }, [refreshTracks]);
-
-  useEffect(() => {
-    if (!currentTrack) return;
-    if (tracks.length === 0) return;
-    if (!tracks.some((t) => t.id === currentTrack.id)) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setCurrentTrack(null);
-      setIsPlaying(false);
-      setCurrentTime(0);
-      setDuration(0);
-      const el = audioRef.current;
-      if (el) {
-        el.pause();
-        el.src = '';
-      }
-    }
-  }, [tracks, currentTrack]);
-
-  useEffect(() => {
-    const el = audioRef.current;
-    if (!el) return;
-
-    const onTime = () => setCurrentTime(el.currentTime);
-    const onMeta = () => setDuration(el.duration || 0);
-    const onPlay = () => setIsPlaying(true);
-    const onPause = () => setIsPlaying(false);
-
-    el.addEventListener('timeupdate', onTime);
-    el.addEventListener('loadedmetadata', onMeta);
-    el.addEventListener('play', onPlay);
-    el.addEventListener('pause', onPause);
-
-    return () => {
-      el.removeEventListener('timeupdate', onTime);
-      el.removeEventListener('loadedmetadata', onMeta);
-      el.removeEventListener('play', onPlay);
-      el.removeEventListener('pause', onPause);
-    };
-  }, []);
-
+  // --- Player actions ---
   const playTrack = useCallback((track: MusicTrack) => {
     setCurrentTrack(track);
-    setCurrentTime(0);
+    writeSavedTrackId(track.id);
+    emitProgress(0, durationRef.current, true);
     const el = audioRef.current;
     if (el) {
       el.src = track.file_url;
-      el.play().catch(() => {
-        setWaitingForGesture(true);
-      });
+      el.play().catch(() => {});
     }
     setIsPlaying(true);
-    try {
-      window.localStorage.setItem(STORAGE_TRACK_ID, track.id);
-    } catch {
-      // ignore storage errors
-    }
-  }, []);
+  }, [emitProgress]);
 
   const togglePlay = useCallback(() => {
     const el = audioRef.current;
-    if (!el || !currentTrack) return;
+    if (!el || !currentTrackRef.current) return;
     if (el.paused) {
-      el.play().catch((e) => console.error('Playback error:', e));
+      el.play().catch(() => {});
     } else {
       el.pause();
     }
-  }, [currentTrack]);
+  }, []);
 
   const seek = useCallback((time: number) => {
     const el = audioRef.current;
     if (el) {
       el.currentTime = time;
-      setCurrentTime(time);
+      emitProgress(time, el.duration || durationRef.current, true);
     }
-  }, []);
+  }, [emitProgress]);
 
   const next = useCallback(() => {
-    if (!currentTrack || tracks.length === 0) return;
-    const idx = tracks.findIndex((t) => t.id === currentTrack.id);
-    if (idx >= 0 && idx < tracks.length - 1) {
-      playTrack(tracks[idx + 1]);
+    const ct = currentTrackRef.current;
+    const tl = tracksRef.current;
+    if (!ct || tl.length === 0) return;
+    const idx = tl.findIndex((t) => t.id === ct.id);
+    if (idx >= 0 && idx < tl.length - 1) {
+      playTrack(tl[idx + 1]);
     }
-  }, [currentTrack, tracks, playTrack]);
+  }, [playTrack]);
 
   const prev = useCallback(() => {
-    if (!currentTrack || tracks.length === 0) return;
-    const idx = tracks.findIndex((t) => t.id === currentTrack.id);
+    const ct = currentTrackRef.current;
+    const tl = tracksRef.current;
+    if (!ct || tl.length === 0) return;
+    const idx = tl.findIndex((t) => t.id === ct.id);
     if (idx > 0) {
-      playTrack(tracks[idx - 1]);
+      playTrack(tl[idx - 1]);
     }
-  }, [currentTrack, tracks, playTrack]);
+  }, [playTrack]);
 
   const stop = useCallback(() => {
     const el = audioRef.current;
@@ -195,117 +202,133 @@ export function MusicProvider({ children }: { children: ReactNode }) {
     }
     setCurrentTrack(null);
     setIsPlaying(false);
-    setCurrentTime(0);
     setDuration(0);
-  }, []);
+    durationRef.current = 0;
+    emitProgress(0, 0, true);
+  }, [emitProgress]);
 
-  const handleEnded = useCallback(() => {
-    if (!currentTrack || tracks.length === 0) return;
-    const idx = tracks.findIndex((t) => t.id === currentTrack.id);
-    if (idx >= 0 && idx < tracks.length - 1) {
-      playTrack(tracks[idx + 1]);
-    } else {
-      setIsPlaying(false);
-    }
-  }, [currentTrack, tracks, playTrack]);
-
+  // --- Audio element event listeners (set up once) ---
   useEffect(() => {
     const el = audioRef.current;
     if (!el) return;
-    el.addEventListener('ended', handleEnded);
-    return () => el.removeEventListener('ended', handleEnded);
-  }, [handleEnded]);
 
-  useEffect(() => {
-    if (hasBootstrappedAutoplay.current) return;
-    if (loading) return;
-    if (tracks.length === 0) return;
-    if (currentTrack) return;
-
-    hasBootstrappedAutoplay.current = true;
-    let target = tracks[0];
-
-    try {
-      const savedTrackId = window.localStorage.getItem(STORAGE_TRACK_ID);
-      if (savedTrackId) {
-        const restored = tracks.find((track) => track.id === savedTrackId);
-        if (restored) target = restored;
+    const onTime = () => {
+      const total = el.duration || durationRef.current;
+      emitProgress(el.currentTime, total);
+    };
+    const onMeta = () => {
+      const total = el.duration || 0;
+      durationRef.current = total;
+      setDuration(total);
+      emitProgress(el.currentTime, total, true);
+    };
+    const onPlay = () => setIsPlaying(true);
+    const onPause = () => setIsPlaying(false);
+    const onEnded = () => {
+      const tl = tracksRef.current;
+      const ct = currentTrackRef.current;
+      if (!ct || tl.length === 0) return;
+      const idx = tl.findIndex((t) => t.id === ct.id);
+      if (idx >= 0 && idx < tl.length - 1) {
+        playTrack(tl[idx + 1]);
+      } else {
+        setIsPlaying(false);
       }
-    } catch {
-      // ignore storage errors
-    }
-
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    playTrack(target);
-  }, [tracks, loading, currentTrack, playTrack]);
-
-  useEffect(() => {
-    if (!waitingForGesture) return;
-    const el = audioRef.current;
-    if (!el) return;
-    if (!currentTrack) return;
-
-    const resumePlayback = () => {
-      el.play()
-        .then(() => {
-          setWaitingForGesture(false);
-          setIsPlaying(true);
-        })
-        .catch(() => {
-          // still blocked by browser policy
-        });
     };
 
-    const opts = { once: true } as const;
-    window.addEventListener('pointerdown', resumePlayback, opts);
-    window.addEventListener('keydown', resumePlayback, opts);
+    el.addEventListener('timeupdate', onTime);
+    el.addEventListener('loadedmetadata', onMeta);
+    el.addEventListener('play', onPlay);
+    el.addEventListener('pause', onPause);
+    el.addEventListener('ended', onEnded);
 
     return () => {
-      window.removeEventListener('pointerdown', resumePlayback);
-      window.removeEventListener('keydown', resumePlayback);
+      el.removeEventListener('timeupdate', onTime);
+      el.removeEventListener('loadedmetadata', onMeta);
+      el.removeEventListener('play', onPlay);
+      el.removeEventListener('pause', onPause);
+      el.removeEventListener('ended', onEnded);
     };
-  }, [waitingForGesture, currentTrack]);
+  }, [emitProgress, playTrack]);
 
+  // --- Load tracks on mount (no auto-play) ---
+  useEffect(() => {
+    if (hasInitialized.current) return;
+    hasInitialized.current = true;
+    refreshTracks();
+  }, [refreshTracks]);
+
+  // --- Restore last-played track (metadata only, no auto-play) ---
+  useEffect(() => {
+    if (loading || tracks.length === 0 || currentTrack) return;
+    const savedId = readSavedTrackId();
+    if (!savedId) return;
+    const restored = tracks.find((t) => t.id === savedId);
+    if (restored) {
+      // use queueMicrotask to avoid setState in effect lint issue
+      queueMicrotask(() => setCurrentTrack(restored));
+    }
+  }, [loading, tracks, currentTrack]);
+
+  // --- Sync CSS variable for layout ---
   useEffect(() => {
     document.documentElement.style.setProperty(
-      '--music-player-height',
-      currentTrack ? '4.5rem' : '0px',
+      '--music-bar-height',
+      currentTrack ? '56px' : '0px',
     );
     return () => {
-      document.documentElement.style.removeProperty('--music-player-height');
+      document.documentElement.style.setProperty('--music-bar-height', '0px');
     };
   }, [currentTrack]);
 
-  const value: MusicContextType = {
-    tracks,
-    currentTrack,
-    isPlaying,
-    currentTime,
-    duration,
-    loading,
-    error,
-    playTrack,
-    togglePlay,
-    seek,
-    next,
-    prev,
-    refreshTracks,
-    upsertTrack,
-    stop,
-  };
+  const libraryValue = useMemo<MusicLibraryContextType>(
+    () => ({ tracks, loading, error, refreshTracks, upsertTrack }),
+    [tracks, loading, error, refreshTracks, upsertTrack],
+  );
+
+  const playerValue = useMemo<MusicPlayerContextType>(
+    () => ({ currentTrack, isPlaying, duration, playTrack, togglePlay, seek, next, prev, stop, subscribeProgress }),
+    [currentTrack, isPlaying, duration, playTrack, togglePlay, seek, next, prev, stop, subscribeProgress],
+  );
 
   return (
-    <MusicContext.Provider value={value}>
-      {children}
-      <audio ref={audioRef} className="hidden" preload="metadata" />
-    </MusicContext.Provider>
+    <MusicLibraryContext.Provider value={libraryValue}>
+      <MusicPlayerContext.Provider value={playerValue}>
+        {children}
+        <audio ref={audioRef} preload="metadata" style={{ display: 'none' }} />
+      </MusicPlayerContext.Provider>
+    </MusicLibraryContext.Provider>
   );
 }
 
+/**
+ * useMusicLibrary — for components that only need the track list.
+ * Does NOT re-render on playback progress or current track changes.
+ */
+export function useMusicLibrary() {
+  const ctx = useContext(MusicLibraryContext);
+  if (ctx === undefined) throw new Error('useMusicLibrary must be used within a MusicProvider');
+  return ctx;
+}
+
+/**
+ * useMusicPlayer — for components that only need playback controls (e.g. MusicBar).
+ * Does NOT re-render when the track list changes.
+ */
+export function useMusicPlayer() {
+  const ctx = useContext(MusicPlayerContext);
+  if (ctx === undefined) throw new Error('useMusicPlayer must be used within a MusicProvider');
+  return ctx;
+}
+
+/**
+ * useMusic — for components that need both library + player state.
+ */
 export function useMusic() {
-  const ctx = useContext(MusicContext);
-  if (ctx === undefined) {
+  const lib = useContext(MusicLibraryContext);
+  const player = useContext(MusicPlayerContext);
+  if (lib === undefined || player === undefined) {
     throw new Error('useMusic must be used within a MusicProvider');
   }
-  return ctx;
+  return { ...lib, ...player };
 }

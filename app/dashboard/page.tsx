@@ -1,22 +1,11 @@
 import React from 'react';
 import Link from 'next/link';
-import {
-  fetchAllGalleryImages,
-  fetchLetters,
-  fetchMusicTracks,
-  fetchNotes,
-  getCurrentUserEmail,
-} from '@/lib/server-data';
-
-export const dynamic = 'force-dynamic';
+import { fetchDashboardCounts, getCurrentUserEmail } from '@/lib/server-data';
 
 export default async function DashboardPage() {
-  const userEmail = await getCurrentUserEmail();
-  const [notes, tracks, photos, letters] = await Promise.all([
-    fetchNotes(),
-    fetchMusicTracks(),
-    fetchAllGalleryImages(),
-    fetchLetters(),
+  const [userEmail, counts] = await Promise.all([
+    getCurrentUserEmail(),
+    fetchDashboardCounts(),
   ]);
 
   const apps = [
@@ -44,7 +33,7 @@ export default async function DashboardPage() {
 
       <div className="app-grid">
         {apps.map((app) => (
-          <Link key={app.href} href={app.href} className="app-card" data-color={app.color}>
+          <Link key={app.href} href={app.href} prefetch className="app-card" data-color={app.color}>
             <div className="app-card-icon">{app.icon}</div>
             <h3>{app.title}</h3>
             <p>{app.desc}</p>
@@ -57,28 +46,28 @@ export default async function DashboardPage() {
         <div className="stat-card">
           <div className="stat-icon">📝</div>
           <div className="stat-info">
-            <p>{notes.length}</p>
+            <p>{counts.notes}</p>
             <span>Notes</span>
           </div>
         </div>
         <div className="stat-card">
           <div className="stat-icon">🎵</div>
           <div className="stat-info">
-            <p>{tracks.length}</p>
+            <p>{counts.tracks}</p>
             <span>Tracks</span>
           </div>
         </div>
         <div className="stat-card">
           <div className="stat-icon">🖼️</div>
           <div className="stat-info">
-            <p>{photos.length}</p>
+            <p>{counts.photos}</p>
             <span>Photos</span>
           </div>
         </div>
         <div className="stat-card">
           <div className="stat-icon">💌</div>
           <div className="stat-info">
-            <p>{letters.length}</p>
+            <p>{counts.letters}</p>
             <span>Letters</span>
           </div>
         </div>

@@ -6,6 +6,7 @@
  * Every operation is automatically protected by Supabase RLS policies.
  */
 
+import { cache } from 'react';
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import type { User } from '@supabase/supabase-js';
@@ -36,7 +37,7 @@ function getTimeIso(row: Row): string | null {
   );
 }
 
-async function getServerClient() {
+const getServerClient = cache(async () => {
   const cookieStore = await cookies();
   return createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -54,13 +55,14 @@ async function getServerClient() {
       },
     },
   );
-}
+});
 
 /**
  * Get authenticated user server-side.
  * Returns null when there is no valid session so read-only pages can render safely.
+ * Cached per-request so parallel page fetches share one auth lookup.
  */
-export async function getAuthenticatedUser(): Promise<User | null> {
+export const getAuthenticatedUser = cache(async (): Promise<User | null> => {
   const supabase = await getServerClient();
   const {
     data: { user },
@@ -72,13 +74,55 @@ export async function getAuthenticatedUser(): Promise<User | null> {
   }
 
   return user;
+});
+
+/**
+ * Lightweight counts for the dashboard home — avoids loading full row payloads.
+ */
+export async function fetchDashboardCounts() {
+  try {
+    const user = await getAuthenticatedUser();
+    if (!user) {
+      return { notes: 0, tracks: 0, photos: 0, letters: 0 };
+    }
+    const supabase = await getServerClient();
+
+    const [notes, tracks, photos, letters] = await Promise.all([
+      supabase
+        .from('notes')
+        .select('id', { count: 'exact', head: true })
+        .eq('user_id', user.id),
+      supabase
+        .from('music_tracks')
+        .select('id', { count: 'exact', head: true })
+        .eq('user_id', user.id),
+      supabase
+        .from('gallery_images')
+        .select('id', { count: 'exact', head: true })
+        .eq('user_id', user.id),
+      supabase
+        .from('letters')
+        .select('id', { count: 'exact', head: true })
+        .eq('user_id', user.id),
+    ]);
+
+    return {
+      notes: notes.count ?? 0,
+      tracks: tracks.count ?? 0,
+      photos: photos.count ?? 0,
+      letters: letters.count ?? 0,
+    };
+  } catch (error) {
+    console.error('Error fetching dashboard counts:', error);
+    return { notes: 0, tracks: 0, photos: 0, letters: 0 };
+  }
 }
 
 /**
  * Fetch all notes for current user
  * Protected by RLS - only user's own notes returned
  */
-export async function fetchNotes() {
+export const fetchNotes = cache(async () => {
   try {
     const user = await getAuthenticatedUser();
     if (!user) return [];
@@ -96,12 +140,12 @@ export async function fetchNotes() {
     console.error('Error fetching notes:', error);
     return [];
   }
-}
+});
 
 /**
  * Fetch all music tracks for current user
  */
-export async function fetchMusicTracks() {
+export const fetchMusicTracks = cache(async () => {
   try {
     const user = await getAuthenticatedUser();
     if (!user) return [];
@@ -125,12 +169,12 @@ export async function fetchMusicTracks() {
     console.error('Error fetching music:', error);
     return [];
   }
-}
+});
 
 /**
  * Fetch all gallery folders for current user
  */
-export async function fetchGalleryFolders() {
+export const fetchGalleryFolders = cache(async () => {
   try {
     const user = await getAuthenticatedUser();
     if (!user) return [];
@@ -148,7 +192,7 @@ export async function fetchGalleryFolders() {
     console.error('Error fetching gallery folders:', error);
     return [];
   }
-}
+});
 
 /**
  * Fetch all images for a specific folder
@@ -187,7 +231,7 @@ export async function fetchGalleryImages(folderId: string) {
 /**
  * Fetch all gallery images across all folders
  */
-export async function fetchAllGalleryImages() {
+export const fetchAllGalleryImages = cache(async () => {
   try {
     const user = await getAuthenticatedUser();
     if (!user) return [];
@@ -215,12 +259,12 @@ export async function fetchAllGalleryImages() {
     console.error('Error fetching all gallery images:', error);
     return [];
   }
-}
+});
 
 /**
  * Fetch all letters for current user
  */
-export async function fetchLetters() {
+export const fetchLetters = cache(async () => {
   try {
     const user = await getAuthenticatedUser();
     if (!user) return [];
@@ -248,12 +292,12 @@ export async function fetchLetters() {
     console.error('Error fetching letters:', error);
     return [];
   }
-}
+});
 
 /**
  * Get current user's email (for UI display)
  */
-export async function getCurrentUserEmail() {
+export const getCurrentUserEmail = cache(async () => {
   try {
     const user = await getAuthenticatedUser();
     if (!user) return null;
@@ -262,4 +306,5 @@ export async function getCurrentUserEmail() {
     // User not authenticated, return null to let middleware handle it
     return null;
   }
-}
+});
+

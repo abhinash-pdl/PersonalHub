@@ -27,7 +27,7 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: "#0077b6",
+  themeColor: "#090707",
 };
 
 export default function RootLayout({
@@ -47,7 +47,7 @@ export default function RootLayout({
         <meta name="mobile-web-app-capable" content="yes" />
         <link rel="apple-touch-icon" href="/icons/icon-192.png" />
       </head>
-      <body className="min-h-full flex flex-col">
+      <body style={{ minHeight: '100%', display: 'flex', flexDirection: 'column' }}>
         <AuthProvider>{children}</AuthProvider>
       </body>
     </html>

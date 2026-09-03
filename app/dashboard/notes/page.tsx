@@ -1,14 +1,12 @@
-import React, { Suspense } from 'react';
-import { fetchNotes } from '@/lib/server-data';
+import React from 'react';
 import { NoteEditor, NoteItem } from '@/components/NoteEditor';
+import { NotesGrid } from '@/components/NotesGrid';
 
-export const dynamic = 'force-dynamic';
-
-export default async function NotesPage() {
+export default function NotesPage() {
   return (
     <div>
       <div className="section-header">
-        <div className="section-icon" style={{ background: 'rgba(234,179,8,0.12)' }}>📝</div>
+        <div className="section-icon" style={{ background: 'var(--surface2)' }}>📝</div>
         <div>
           <div className="section-title">Your Notes</div>
           <div className="section-sub">Keep your thoughts organized and accessible</div>
@@ -22,35 +20,9 @@ export default async function NotesPage() {
         </div>
 
         <div>
-          <Suspense fallback={<div className="empty-state"><p>Loading notes...</p></div>}>
-            <NotesGrid />
-          </Suspense>
-        </div>
+          <NotesGrid />
         </div>
       </div>
-  );
-}
-
-async function NotesGrid() {
-  const notes = await fetchNotes();
-
-  if (notes.length === 0) {
-    return (
-      <div className="empty-state">
-        <div className="empty-icon">📝</div>
-        <p className="text-gray-400">No notes yet. Create one to get started!</p>
-      </div>
-    );
-  }
-
-  return (
-    <div className="notes-grid">
-      {notes.map((note) => (
-        <NoteItem
-          key={note.id}
-          note={note}
-        />
-      ))}
     </div>
   );
 }

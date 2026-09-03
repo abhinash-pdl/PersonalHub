@@ -54,46 +54,47 @@ export function MusicPlayer({ tracks, onTrackDeleted }: MusicPlayerProps) {
     if (isPlaying && audioRef.current) {
       audioRef.current.play().catch(() => setIsPlaying(false));
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentTrack]);
 
   if (tracks.length === 0) {
     return (
-      <div className="rounded-lg border border-white/20 bg-white/5 p-8 text-center">
-        <p className="text-gray-400">No music uploaded yet</p>
+      <div style={{ borderRadius: 12, border: '1px solid var(--border)', background: 'var(--surface)', padding: 32, textAlign: 'center' }}>
+        <p style={{ color: 'var(--text3)', fontSize: 14 }}>No music uploaded yet</p>
       </div>
     );
   }
 
   return (
-    <div className="space-y-4">
+    <div style={{ display: 'grid', gap: 16 }}>
       {/* Player */}
-      <div className="rounded-lg border border-white/20 bg-white/4 p-6">
-        <div className="mb-4">
-          <h3 className="text-lg font-semibold text-white line-clamp-1">{currentTrack?.title}</h3>
+      <div style={{ borderRadius: 12, border: '1px solid var(--border)', background: 'var(--surface)', padding: 24 }}>
+        <div style={{ marginBottom: 16 }}>
+          <h3 style={{ fontSize: 18, fontWeight: 600, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{currentTrack?.title}</h3>
           <audio
             ref={audioRef}
             src={currentTrack?.file_url}
             onEnded={handleNextTrack}
-            className="mb-4 w-full"
+            style={{ width: '100%', marginTop: 16 }}
             controls
           />
         </div>
-        <div className="flex gap-2 justify-center">
+        <div style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>
           <button
             onClick={handlePreviousTrack}
-            className="rounded-lg bg-white/10 px-4 py-2 text-white transition hover:bg-white/20"
+            style={{ borderRadius: 12, background: 'var(--surface2)', border: '1px solid var(--border)', padding: '8px 16px', color: 'var(--text)', cursor: 'pointer', transition: 'var(--transition)' }}
           >
             ⏮️
           </button>
           <button
             onClick={handlePlayPause}
-            className="rounded-lg bg-linear-to-r from-purple-600 to-pink-600 px-6 py-2 text-white transition hover:from-purple-700 hover:to-pink-700"
+            style={{ borderRadius: 12, background: '#ffffff', border: 'none', padding: '8px 24px', color: '#000000', fontWeight: 600, cursor: 'pointer', transition: 'var(--transition)' }}
           >
             {isPlaying ? '⏸️ Pause' : '▶️ Play'}
           </button>
           <button
             onClick={handleNextTrack}
-            className="rounded-lg bg-white/10 px-4 py-2 text-white transition hover:bg-white/20"
+            style={{ borderRadius: 12, background: 'var(--surface2)', border: '1px solid var(--border)', padding: '8px 16px', color: 'var(--text)', cursor: 'pointer', transition: 'var(--transition)' }}
           >
             ⏭️
           </button>
@@ -101,7 +102,7 @@ export function MusicPlayer({ tracks, onTrackDeleted }: MusicPlayerProps) {
       </div>
 
       {/* Playlist */}
-      <div className="space-y-2 max-h-64 overflow-y-auto">
+      <div style={{ display: 'grid', gap: 8, maxHeight: 256, overflowY: 'auto' }}>
         {tracks.map((track) => (
           <MusicTrackItem
             key={track.id}
@@ -147,25 +148,39 @@ export function MusicTrackItem({ track, isActive, onSelect, onDelete }: MusicTra
   return (
     <div
       onClick={onSelect}
-      className={`p-3 rounded-lg border transition cursor-pointer ${
-        isActive
-          ? 'border-purple-500 bg-purple-500/20'
-          : 'border-white/20 bg-white/5 hover:bg-white/10'
-      }`}
+      style={{
+        padding: 12,
+        borderRadius: 8,
+        border: `1px solid ${isActive ? '#ffffff44' : 'var(--border)'}`,
+        background: isActive ? 'rgba(255,255,255,0.06)' : 'var(--surface)',
+        cursor: 'pointer',
+        transition: 'var(--transition)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between'
+      }}
     >
-      <div className="flex items-center justify-between">
-        <span className="text-sm text-white line-clamp-1">{track.title}</span>
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            handleDelete();
-          }}
-          disabled={deleting}
-          className="text-xs text-red-400 transition hover:text-red-300 disabled:opacity-50 ml-2"
-        >
-          {deleting ? '...' : '✕'}
-        </button>
-      </div>
+      <span style={{ fontSize: 14, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{track.title}</span>
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          handleDelete();
+        }}
+        disabled={deleting}
+        style={{ 
+          background: 'none', 
+          border: 'none', 
+          color: 'var(--text3)', 
+          cursor: 'pointer', 
+          fontSize: 12, 
+          padding: '2px 6px',
+          borderRadius: 4,
+          marginLeft: 8,
+          flexShrink: 0
+        }}
+      >
+        {deleting ? '...' : '✕'}
+      </button>
     </div>
   );
 }
@@ -184,6 +199,11 @@ export function MusicUpload({ onUploadComplete }: MusicUploadProps) {
   const handleUpload = async () => {
     if (!title.trim() || !file) {
       setError('Title and file are required');
+      return;
+    }
+
+    if (!file.name.toLowerCase().endsWith('.mp3')) {
+      setError('Only MP3 files are allowed');
       return;
     }
 
@@ -214,25 +234,53 @@ export function MusicUpload({ onUploadComplete }: MusicUploadProps) {
   };
 
   return (
-    <div className="rounded-lg border border-white/20 bg-white/5 p-4 space-y-3">
+    <div style={{ borderRadius: 12, border: '1px solid var(--border)', background: 'var(--surface)', padding: 16, display: 'grid', gap: 12 }}>
       <input
         type="text"
         value={title}
         onChange={(e) => setTitle(e.target.value)}
         placeholder="Track title"
-        className="w-full rounded-lg border border-white/20 bg-white/5 px-3 py-2 text-white placeholder-gray-400 focus:border-purple-500 focus:outline-none focus:ring-2 focus:ring-purple-500/20"
+        style={{
+          width: '100%',
+          padding: '8px 12px',
+          borderRadius: 8,
+          border: '1px solid var(--border)',
+          background: 'var(--surface2)',
+          color: 'var(--text)',
+          fontSize: 14,
+          outline: 'none'
+        }}
       />
       <input
         type="file"
-        accept="audio/*"
-        onChange={(e) => setFile(e.target.files?.[0] || null)}
-        className="w-full text-sm text-gray-400"
+        accept=".mp3,audio/mpeg"
+        onChange={(e) => {
+          const f = e.target.files?.[0] || null;
+          if (f && !f.name.toLowerCase().endsWith('.mp3')) {
+            setError('Only MP3 files are allowed');
+            setFile(null);
+            return;
+          }
+          setFile(f);
+        }}
+        style={{ fontSize: 12, color: 'var(--text3)' }}
       />
-      {error && <p className="text-sm text-red-400">{error}</p>}
+      {error && <p style={{ fontSize: 13, color: 'var(--text)' }}>{error}</p>}
       <button
         onClick={handleUpload}
         disabled={uploading || !title.trim() || !file}
-        className="w-full rounded-lg bg-linear-to-r from-purple-600 to-pink-600 px-4 py-2 font-semibold text-white transition hover:from-purple-700 hover:to-pink-700 disabled:opacity-50"
+        style={{
+          width: '100%',
+          padding: '10px',
+          borderRadius: 8,
+          background: '#ffffff',
+          border: 'none',
+          color: '#ffffff',
+          fontWeight: 600,
+          cursor: 'pointer',
+          transition: 'var(--transition)',
+          opacity: uploading || !title.trim() || !file ? 0.6 : 1
+        }}
       >
         {uploading ? 'Uploading...' : 'Upload Music'}
       </button>

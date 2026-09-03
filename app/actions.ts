@@ -7,7 +7,15 @@
  */
 
 import { createServerClient } from '@supabase/ssr';
+import { revalidatePath } from 'next/cache';
 import { cookies } from 'next/headers';
+
+function revalidateDashboard(paths: string[]) {
+  revalidatePath('/dashboard');
+  for (const path of paths) {
+    revalidatePath(path);
+  }
+}
 
 /**
  * Get the authenticated user's session server-side.
@@ -150,6 +158,7 @@ export async function createNoteAction(title: string, content: string) {
       .select();
 
     if (error) throw error;
+    revalidateDashboard(['/dashboard/notes']);
     return { success: true, data };
   } catch (error) {
     return { success: false, error: (error as Error).message };
@@ -189,6 +198,7 @@ export async function updateNoteAction(id: string, title: string, content: strin
       .select();
 
     if (error) throw error;
+    revalidateDashboard(['/dashboard/notes']);
     return { success: true, data };
   } catch (error) {
     return { success: false, error: (error as Error).message };
@@ -227,6 +237,7 @@ export async function deleteNoteAction(id: string) {
       .eq('user_id', user.id); // Ensure user owns this note
 
     if (error) throw error;
+    revalidateDashboard(['/dashboard/notes']);
     return { success: true };
   } catch (error) {
     return { success: false, error: (error as Error).message };
@@ -268,6 +279,7 @@ export async function createMusicTrackAction(title: string, artist: string, file
     for (const payload of payloads) {
       const { data, error } = await supabase.from('music_tracks').insert([payload]).select();
       if (!error) {
+        revalidateDashboard(['/dashboard/music']);
         return { success: true, data };
       }
 
@@ -317,6 +329,7 @@ export async function deleteMusicTrackAction(id: string) {
       .eq('user_id', user.id);
 
     if (error) throw error;
+    revalidateDashboard(['/dashboard/music']);
     return { success: true };
   } catch (error) {
     return { success: false, error: (error as Error).message };
@@ -359,6 +372,7 @@ export async function createGalleryFolderAction(name: string) {
       .select();
 
     if (error) throw error;
+    revalidateDashboard(['/dashboard/gallery']);
     return { success: true, data };
   } catch (error) {
     return { success: false, error: (error as Error).message };
@@ -397,6 +411,7 @@ export async function deleteGalleryFolderAction(id: string) {
       .eq('user_id', user.id);
 
     if (error) throw error;
+    revalidateDashboard(['/dashboard/gallery']);
     return { success: true };
   } catch (error) {
     return { success: false, error: (error as Error).message };
@@ -444,7 +459,10 @@ export async function createGalleryImageAction(
 
     for (const payload of payloads) {
       const { data, error } = await supabase.from('gallery_images').insert([payload]).select();
-      if (!error) return { success: true, data };
+      if (!error) {
+        revalidateDashboard(['/dashboard/gallery']);
+        return { success: true, data };
+      }
 
       const errCode = (error as unknown as { code?: string }).code;
       if (errCode === '42703') continue;
@@ -489,6 +507,7 @@ export async function deleteGalleryImageAction(id: string) {
       .eq('user_id', user.id);
 
     if (error) throw error;
+    revalidateDashboard(['/dashboard/gallery']);
     return { success: true };
   } catch (error) {
     return { success: false, error: (error as Error).message };
@@ -533,6 +552,7 @@ export async function createLetterAction(
 
     const { data, error } = await supabase.from('letters').insert([payload]).select();
     if (error) throw error;
+    revalidateDashboard(['/dashboard/letters']);
     return { success: true, data };
   } catch (error) {
     return { success: false, error: (error as Error).message };
@@ -571,6 +591,57 @@ export async function deleteLetterAction(id: string) {
       .eq('user_id', user.id);
 
     if (error) throw error;
+    revalidateDashboard(['/dashboard/letters']);
+    return { success: true };
+  } catch (error) {
+    return { success: false, error: (error as Error).message };
+  }
+}
+
+/**
+ * Update a letter (server-side validation)
+ */
+export async function updateLetterAction(
+  id: string,
+  recipientName: string,
+  content: string,
+  recipientEmail?: string,
+) {
+  try {
+    const user = await getAuthenticatedUser();
+
+    const cookieStore = await cookies();
+    const supabase = createServerClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      {
+        cookies: {
+          getAll() {
+            return cookieStore.getAll();
+          },
+          setAll(cookiesToSet) {
+            cookiesToSet.forEach(({ name, value, options }) => {
+              cookieStore.set(name, value, options);
+            });
+          },
+        },
+      },
+    );
+
+    const payload = {
+      recipient_name: recipientName,
+      recipient_email: recipientEmail?.trim() ? recipientEmail.trim() : null,
+      content,
+    };
+
+    const { error } = await supabase
+      .from('letters')
+      .update(payload)
+      .eq('id', id)
+      .eq('user_id', user.id);
+
+    if (error) throw error;
+    revalidateDashboard(['/dashboard/letters']);
     return { success: true };
   } catch (error) {
     return { success: false, error: (error as Error).message };

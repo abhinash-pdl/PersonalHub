@@ -1,6 +1,6 @@
 'use client';
 
-import React, { createContext, useContext, useEffect, useState, ReactNode } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useState, ReactNode } from 'react';
 import { User } from '@supabase/supabase-js';
 import { signInAction, signOutAction, signUpAction } from '@/app/actions';
 import { getSupabaseClient } from '@/lib/supabase';
@@ -19,16 +19,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const clearLocalSession = async () => {
+  const clearLocalSession = useCallback(async () => {
     try {
       await getSupabaseClient().auth.signOut({ scope: 'local' });
     } catch {
       // Ignore cleanup failures when the browser session is already invalid.
     }
-  };
+  }, []);
 
   useEffect(() => {
-    // Check current session
     const checkAuth = async () => {
       try {
         const { data, error } = await getSupabaseClient().auth.getUser();
@@ -53,20 +52,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
 
     checkAuth();
+  }, [clearLocalSession]);
 
-    // Subscribe to auth changes
-    const { data } = getSupabaseClient().auth.onAuthStateChange((_event, session) => {
-      setUser(session?.user || null);
-    });
-
-    return () => {
-      if (data?.subscription) {
-        data.subscription.unsubscribe();
-      }
-    };
-  }, []);
-
-  const login = async (email: string, password: string) => {
+  const login = useCallback(async (email: string, password: string) => {
     setLoading(true);
     try {
       const result = await signInAction(email, password);
@@ -83,9 +71,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
-  const signup = async (email: string, password: string) => {
+  const signup = useCallback(async (email: string, password: string) => {
     setLoading(true);
     try {
       const result = await signUpAction(email, password);
@@ -102,9 +90,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
-  const logout = async () => {
+  const logout = useCallback(async () => {
     setLoading(true);
     try {
       const result = await signOutAction();
@@ -115,13 +103,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } finally {
       setLoading(false);
     }
-  };
+  }, [clearLocalSession]);
 
-  return (
-    <AuthContext.Provider value={{ user, loading, login, signup, logout }}>
-      {children}
-    </AuthContext.Provider>
+  const value = useMemo(
+    () => ({ user, loading, login, signup, logout }),
+    [user, loading, login, signup, logout],
   );
+
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
 export function useAuth() {

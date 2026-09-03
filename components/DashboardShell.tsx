@@ -1,24 +1,33 @@
 'use client';
 
-import React from 'react';
+import React, { useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import Navbar from '@/components/Navbar';
-import { AuthGuard } from '@/components/AuthGuard';
+import AppNav from '@/components/AppNav';
+import MusicBar from '@/components/MusicBar';
 import { MusicProvider } from '@/contexts/MusicContext';
+import { DashboardDataProvider } from '@/contexts/DashboardDataContext';
+import { dashboardNavLinks } from '@/lib/nav';
 
 export function DashboardShell({ children }: { children: React.ReactNode }) {
+  const router = useRouter();
+
+  useEffect(() => {
+    for (const link of dashboardNavLinks) {
+      router.prefetch(link.href);
+    }
+  }, [router]);
+
   return (
-    <AuthGuard>
-      <MusicProvider>
-        <div className="min-h-screen">
-          <div className="ambient ambient-1" aria-hidden />
-          <div className="ambient ambient-2" aria-hidden />
-          <div className="ambient ambient-3" aria-hidden />
+    <MusicProvider>
+      <DashboardDataProvider>
+        <div className="app-shell">
           <Navbar />
-          <main className="main">
-            {children}
-          </main>
+          <main className="main">{children}</main>
+          <MusicBar />
+          <AppNav variant="bottom" />
         </div>
-      </MusicProvider>
-    </AuthGuard>
+      </DashboardDataProvider>
+    </MusicProvider>
   );
 }

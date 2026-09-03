@@ -65,9 +65,9 @@ export default function LoginPage() {
             marginBottom: 16,
             padding: '12px 14px',
             borderRadius: 12,
-            border: '1px solid rgba(239,68,68,0.22)',
-            background: 'rgba(239,68,68,0.08)',
-            color: '#fca5a5',
+            border: '1px solid #ffffff44',
+            background: 'rgba(255,255,255,0.04)',
+            color: 'var(--text)',
             fontSize: 13,
             lineHeight: 1.5,
           }}>

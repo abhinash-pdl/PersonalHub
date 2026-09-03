@@ -1,15 +1,6 @@
 import React from 'react';
-import nextDynamic from 'next/dynamic';
+import { GalleryWorkspace } from '@/components/GalleryManager';
 import { fetchGalleryFolders, fetchAllGalleryImages } from '@/lib/server-data';
-
-export const dynamic = 'force-dynamic';
-
-const GalleryWorkspace = nextDynamic(
-  () => import('@/components/GalleryManager').then((mod) => mod.GalleryWorkspace),
-  {
-    loading: () => <div className="empty-state"><p>Loading your gallery...</p></div>,
-  },
-);
 
 export default async function GalleryPage() {
   const folders = await fetchGalleryFolders();
@@ -18,7 +9,7 @@ export default async function GalleryPage() {
   return (
     <div>
       <div className="section-header">
-        <div className="section-icon" style={{ background: 'rgba(6,182,212,0.12)' }}>🖼️</div>
+        <div className="section-icon" style={{ background: 'var(--surface2)' }}>▣</div>
         <div>
           <div className="section-title">Gallery</div>
           <div className="section-sub">Organize and view your photos</div>

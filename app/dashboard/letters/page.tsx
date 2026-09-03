@@ -2,13 +2,11 @@ import React, { Suspense } from 'react';
 import { fetchLetters } from '@/lib/server-data';
 import { LetterCard, LetterEditor } from '@/components/LettersView';
 
-export const dynamic = 'force-dynamic';
-
 export default async function LettersPage() {
   return (
     <div>
       <div className="section-header">
-        <div className="section-icon" style={{ background: 'rgba(244,63,94,0.12)' }}>💌</div>
+        <div className="section-icon" style={{ background: 'var(--surface2)' }}>💌</div>
         <div>
           <div className="section-title">Letters</div>
           <div className="section-sub">Write and save your letters</div>

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import Image from 'next/image';
 import {
   createGalleryFolderAction,
@@ -81,7 +81,7 @@ export function GalleryFolders({ folders, onFolderSelect, onRefresh, activeFolde
         placeholder="Folder name..."
         className="field-input"
       />
-      {error ? <p className="section-sub" style={{ color: '#f87171', marginBottom: '10px' }}>{error}</p> : null}
+      {error ? <p className="section-sub" style={{ color: 'var(--text)', marginBottom: '10px' }}>{error}</p> : null}
       <button type="button" onClick={handleCreateFolder} disabled={creating} className="btn-primary cyan">
         {creating ? 'Creating...' : 'Create Folder'}
       </button>
@@ -140,14 +140,27 @@ interface GalleryImagesProps {
   onRefresh?: () => void;
 }
 
+const ALLOWED_IMAGE_TYPES = ['.png', '.jpg', '.jpeg'];
+
 export function GalleryImages({ images, folderId, onRefresh }: GalleryImagesProps) {
   const router = useRouter();
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState('');
+  const [cameraOpen, setCameraOpen] = useState(false);
+  const [cameraError, setCameraError] = useState('');
+  const [facingMode, setFacingMode] = useState<'environment' | 'user'>('environment');
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
 
   const handleImageUpload = async (file: File) => {
     if (!folderId) {
       setError('Select a folder first');
+      return;
+    }
+
+    const ext = file.name.toLowerCase().match(/\.[^./\\]+$/)?.[0] || '';
+    if (!ALLOWED_IMAGE_TYPES.includes(ext)) {
+      setError('Only PNG and JPG/JPEG images are allowed');
       return;
     }
 
@@ -175,17 +188,75 @@ export function GalleryImages({ images, folderId, onRefresh }: GalleryImagesProp
     }
   };
 
+  const stopStream = () => {
+    streamRef.current?.getTracks().forEach((track) => track.stop());
+    streamRef.current = null;
+  };
+
+  const initCamera = async (mode: 'environment' | 'user') => {
+    try {
+      stopStream();
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: mode },
+        audio: false,
+      });
+      streamRef.current = stream;
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        await videoRef.current.play().catch(() => {});
+      }
+      setCameraError('');
+    } catch (err) {
+      setCameraError(
+        'Camera unavailable. Ensure the page is served over HTTPS and camera permission is granted.',
+      );
+    }
+  };
+
+  useEffect(() => {
+    if (!cameraOpen) return;
+    initCamera(facingMode);
+    return stopStream;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cameraOpen]);
+
+  const capturePhoto = async () => {
+    const video = videoRef.current;
+    if (!video || !video.videoWidth) {
+      setCameraError('Camera is not ready yet.');
+      return;
+    }
+
+    const canvas = document.createElement('canvas');
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+    canvas.toBlob(async (blob) => {
+      if (!blob) return;
+      const file = new File([blob], `photo_${Date.now()}.jpg`, { type: 'image/jpeg' });
+      await handleImageUpload(file);
+    }, 'image/jpeg', 0.92);
+  };
+
+  const closeCamera = () => {
+    stopStream();
+    setCameraOpen(false);
+  };
+
   return (
     <div>
       <div className="upload-zone">
         <input
           type="file"
           multiple
-          accept="image/*"
+          accept=".png,.jpg,.jpeg,image/png,image/jpeg"
           onChange={(e) => {
             Array.from(e.target.files || []).forEach(handleImageUpload);
           }}
-          className="hidden"
+          style={{ display: 'none' }}
           id="image-upload"
         />
         <label htmlFor="image-upload" style={{ cursor: 'pointer', display: 'block' }}>
@@ -195,7 +266,45 @@ export function GalleryImages({ images, folderId, onRefresh }: GalleryImagesProp
         </label>
       </div>
 
-      {error ? <p className="section-sub" style={{ color: '#f87171', marginBottom: '10px' }}>{error}</p> : null}
+      <div style={{ marginBottom: '16px' }}>
+        <button type="button" className="btn-primary" onClick={() => { setCameraError(''); setFacingMode('environment'); setCameraOpen(true); }} style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
+          📷 Take Photo with Camera
+        </button>
+      </div>
+
+      {cameraOpen ? (
+        <div className="expand-overlay" onClick={() => !uploading && closeCamera()}>
+          <button
+            type="button"
+            className="expand-close"
+            aria-label="Close"
+            onClick={() => !uploading && closeCamera()}
+          >
+            ✕
+          </button>
+          <div className="camera-view" onClick={(e) => e.stopPropagation()}>
+            <div className="camera-title">📷 Live Camera</div>
+            {cameraError ? <p className="section-sub" style={{ color: 'var(--text)', marginBottom: '10px' }}>{cameraError}</p> : null}
+            <video
+              ref={videoRef}
+              playsInline
+              muted
+              autoPlay
+              style={{ width: '100%', maxHeight: '50vh', borderRadius: 'var(--radius-sm)', background: '#000', objectFit: 'cover' }}
+            />
+            <div className="camera-controls">
+              <button type="button" className="btn-primary" onClick={() => initCamera(facingMode === 'environment' ? 'user' : 'environment')}>
+                🔄 Flip Camera
+              </button>
+              <button type="button" className="btn-primary" onClick={capturePhoto} disabled={uploading}>
+                {uploading ? 'Saving...' : '📸 Capture'}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {error ? <p className="section-sub" style={{ color: 'var(--text)', marginBottom: '10px' }}>{error}</p> : null}
 
       {images.length > 0 ? (
         <div className="photo-grid">
@@ -222,6 +331,7 @@ interface GalleryImageCardProps {
 export function GalleryImageCard({ image, onDelete }: GalleryImageCardProps) {
   const router = useRouter();
   const [deleting, setDeleting] = useState(false);
+  const [lightbox, setLightbox] = useState(false);
 
   const handleDelete = async () => {
     if (!confirm('Delete this image?')) return;
@@ -238,18 +348,36 @@ export function GalleryImageCard({ image, onDelete }: GalleryImageCardProps) {
   };
 
   return (
-    <div className="photo-card">
-      {image.file_url ? (
-        <Image src={image.file_url} alt={image.title || 'Photo'} width={800} height={800} className="h-full w-full object-cover" unoptimized />
-      ) : (
-        <div className="photo-placeholder">🖼️<span>{image.title || 'Image'}</span></div>
-      )}
-      <div className="photo-overlay">
-        <button type="button" className="btn-delete" onClick={handleDelete} disabled={deleting}>
-          {deleting ? '...' : '✕'}
-        </button>
+    <>
+      <div className="photo-card" onClick={() => image.file_url && setLightbox(true)}>
+        {image.file_url ? (
+          <Image src={image.file_url} alt={image.title || 'Photo'} width={800} height={800} style={{ width: '100%', height: '100%', objectFit: 'cover' }} unoptimized />
+        ) : (
+          <div className="photo-placeholder">🖼️<span>{image.title || 'Image'}</span></div>
+        )}
+        <div className="photo-overlay">
+          <button type="button" className="btn-delete" onClick={(e) => { e.stopPropagation(); handleDelete(); }} disabled={deleting}>
+            {deleting ? '...' : '✕'}
+          </button>
+        </div>
       </div>
-    </div>
+
+      {lightbox && image.file_url ? (
+        <div className="expand-overlay" onClick={() => setLightbox(false)}>
+          <button
+            type="button"
+            className="expand-close"
+            aria-label="Close"
+            onClick={() => setLightbox(false)}
+          >
+            ✕
+          </button>
+          <div className="expand-lightbox" onClick={(e) => e.stopPropagation()}>
+            <Image src={image.file_url} alt={image.title || 'Photo'} width={1600} height={1600} unoptimized />
+          </div>
+        </div>
+      ) : null}
+    </>
   );
 }
 

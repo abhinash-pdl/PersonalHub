@@ -6,6 +6,12 @@ const BUCKET_GALLERY = 'gallery-images';
 
 let supabaseClient: SupabaseClient | null = null;
 
+// --- Cached user to avoid redundant auth.getUser() calls ---
+let cachedUser: User | null = null;
+let userFetchPromise: Promise<User | null> | null = null;
+let userCacheExpiry = 0;
+const USER_CACHE_TTL = 30_000; // 30 seconds
+
 function isInvalidRefreshTokenError(error: unknown) {
   const message = String((error as { message?: unknown } | null | undefined)?.message || error);
   return message.includes('Invalid Refresh Token') || message.includes('Refresh Token Not Found');
@@ -15,22 +21,50 @@ async function clearLocalSession() {
   try {
     await getSupabaseClient().auth.signOut({ scope: 'local' });
   } catch {
-    // The browser session is already unusable; ignore cleanup errors.
+    // ignore
   }
+  cachedUser = null;
+  userCacheExpiry = 0;
 }
 
-async function getSafeBrowserUser(): Promise<User | null> {
-  try {
-    const { data } = await getSupabaseClient().auth.getUser();
-    return data.user || null;
-  } catch (error) {
-    if (isInvalidRefreshTokenError(error)) {
-      await clearLocalSession();
-      return null;
-    }
+export async function getCachedUser(): Promise<User | null> {
+  const now = Date.now();
 
-    throw error;
-  }
+  // Return cached user if still fresh
+  if (cachedUser && now < userCacheExpiry) return cachedUser;
+
+  // Deduplicate concurrent calls
+  if (userFetchPromise) return userFetchPromise;
+
+  userFetchPromise = (async () => {
+    try {
+      const { data, error } = await getSupabaseClient().auth.getUser();
+      if (error && isInvalidRefreshTokenError(error)) {
+        await clearLocalSession();
+        return null;
+      }
+      if (error) throw error;
+      cachedUser = data.user || null;
+      userCacheExpiry = Date.now() + USER_CACHE_TTL;
+      return cachedUser;
+    } catch (error) {
+      if (isInvalidRefreshTokenError(error)) {
+        await clearLocalSession();
+        return null;
+      }
+      throw error;
+    } finally {
+      userFetchPromise = null;
+    }
+  })();
+
+  return userFetchPromise;
+}
+
+/** Invalidate user cache (e.g. after login/logout). */
+export function invalidateUserCache() {
+  cachedUser = null;
+  userCacheExpiry = 0;
 }
 
 export const getSupabaseClient = (): SupabaseClient => {
@@ -53,48 +87,71 @@ export const getSupabaseClient = (): SupabaseClient => {
   return supabaseClient;
 };
 
-// Helper: perform a select with robust ordering fallback.
-// Tries each candidate column in order; if none exist, returns results without ordering.
-async function selectWithOrder(
+// --- Simple client-side data cache ---
+interface CacheEntry<T> {
+  data: T;
+  expiry: number;
+}
+
+const dataCache = new Map<string, CacheEntry<unknown>>();
+const CACHE_TTL = 15_000; // 15 seconds for reads
+
+function cacheKey(table: string, filters: Array<[string, unknown]>): string {
+  return `${table}:${filters.map(([k, v]) => `${k}=${String(v)}`).join('&')}`;
+}
+
+function getCachedData<T>(key: string): T | null {
+  const entry = dataCache.get(key) as CacheEntry<T> | undefined;
+  if (entry && Date.now() < entry.expiry) return entry.data;
+  if (entry) dataCache.delete(key);
+  return null;
+}
+
+function setCachedData<T>(key: string, data: T) {
+  dataCache.set(key, { data, expiry: Date.now() + CACHE_TTL });
+}
+
+function invalidateCache(table: string) {
+  for (const key of dataCache.keys()) {
+    if (key.startsWith(`${table}:`)) dataCache.delete(key);
+  }
+}
+
+/** Clear the entire client-side data cache (used when refreshing after mutations). */
+export function clearDataCache() {
+  dataCache.clear();
+}
+
+/**
+ * Simple select: try ordering by `created_at`, fall back to no ordering in ONE query.
+ * Never makes more than 2 requests.
+ */
+async function smartSelect(
   table: string,
   selectCols = '*',
   filters: Array<[string, unknown]> = [],
-  orderCandidates: string[] = ['created_at', 'uploaded_at', 'uploaded_at_timestamp', 'id'],
 ) {
   const client = getSupabaseClient();
 
-  for (const col of orderCandidates) {
-    let builder = client.from(table).select(selectCols);
-    for (const [k, v] of filters) builder = builder.eq(k, v);
-    try {
-      // attempt ordering by candidate column
-      // Supabase returns { data, error }
-      const res = await builder.order(col, { ascending: false });
-      if (res.error) {
-        // if column doesn't exist, Postgres returns code 42703
-        const errCode = (res.error as unknown as { code?: string }).code;
-        if (errCode === '42703') {
-          continue; // try next candidate
-        }
-        throw res.error;
-      }
-      return res.data || [];
-    } catch (err: unknown) {
-      // If error mentions missing column, try next candidate; otherwise rethrow
-      const msg = String((err as { message?: unknown } | null | undefined)?.message || err);
-      if (msg.includes('column') && msg.includes('does not exist')) {
-        continue;
-      }
-      throw err;
+  // First try with created_at ordering
+  let builder = client.from(table).select(selectCols);
+  for (const [k, v] of filters) builder = builder.eq(k, v);
+  const res = await builder.order('created_at', { ascending: false });
+
+  if (res.error) {
+    const code = (res.error as unknown as { code?: string }).code;
+    // Column doesn't exist — retry without ordering (single extra request)
+    if (code === '42703') {
+      let fb = client.from(table).select(selectCols);
+      for (const [k, v] of filters) fb = fb.eq(k, v);
+      const fbRes = await fb;
+      if (fbRes.error) throw fbRes.error;
+      return fbRes.data || [];
     }
+    throw res.error;
   }
 
-  // final attempt without ordering
-  let finalBuilder = client.from(table).select(selectCols);
-  for (const [k, v] of filters) finalBuilder = finalBuilder.eq(k, v);
-  const finalRes = await finalBuilder;
-  if (finalRes.error) throw finalRes.error;
-  return finalRes.data || [];
+  return res.data || [];
 }
 
 function safeStorageSegment(value: string) {
@@ -125,21 +182,25 @@ function buildMusicStorageKey(userId: string, fileName: string) {
 export const auth = {
   async signup(email: string, password: string): Promise<{ user: User | null; error: AuthError | null }> {
     const { data, error } = await getSupabaseClient().auth.signUp({ email, password });
+    invalidateUserCache();
     return { user: data.user, error };
   },
 
   async login(email: string, password: string): Promise<{ user: User | null; error: AuthError | null }> {
     const { data, error } = await getSupabaseClient().auth.signInWithPassword({ email, password });
+    invalidateUserCache();
     return { user: data.user, error };
   },
 
   async logout(): Promise<{ error: AuthError | null }> {
     const { error } = await getSupabaseClient().auth.signOut();
+    invalidateUserCache();
+    dataCache.clear();
     return { error };
   },
 
   async getUser(): Promise<User | null> {
-    return getSafeBrowserUser();
+    return getCachedUser();
   },
 
   async getSession() {
@@ -149,6 +210,7 @@ export const auth = {
 
   onAuthStateChange(callback: (user: User | null) => void) {
     return getSupabaseClient().auth.onAuthStateChange((_event, session) => {
+      invalidateUserCache();
       callback(session?.user || null);
     });
   },
@@ -159,17 +221,23 @@ export const auth = {
  */
 export const notes = {
   async getAll() {
-    const user = await getSafeBrowserUser();
+    const user = await getCachedUser();
     if (!user) throw new Error('Not authenticated');
 
-    const data = await selectWithOrder('notes', '*', [['user_id', user.id]]);
-    return data || [];
+    const key = cacheKey('notes', [['user_id', user.id]]);
+    const cached = getCachedData(key);
+    if (cached) return cached;
+
+    const data = await smartSelect('notes', '*', [['user_id', user.id]]);
+    setCachedData(key, data);
+    return data;
   },
 
   async create(title: string, content: string) {
-    const user = await getSafeBrowserUser();
+    const user = await getCachedUser();
     if (!user) throw new Error('Not authenticated');
 
+    invalidateCache('notes');
     const { data, error } = await getSupabaseClient()
       .from('notes')
       .insert([{ title, content, user_id: user.id }])
@@ -180,9 +248,10 @@ export const notes = {
   },
 
   async update(id: string, title: string, content: string) {
-    const user = await getSafeBrowserUser();
+    const user = await getCachedUser();
     if (!user) throw new Error('Not authenticated');
 
+    invalidateCache('notes');
     const { data, error } = await getSupabaseClient()
       .from('notes')
       .update({ title, content, updated_at: new Date().toISOString() })
@@ -195,30 +264,16 @@ export const notes = {
   },
 
   async delete(id: string) {
-    const user = await getSafeBrowserUser();
+    const user = await getCachedUser();
     if (!user) throw new Error('Not authenticated');
 
+    invalidateCache('notes');
     const { error } = await getSupabaseClient()
       .from('notes')
       .delete()
       .eq('id', id)
       .eq('user_id', user.id);
     if (error) throw error;
-  },
-
-  subscribe(callback: (change: unknown) => void) {
-    return getSupabaseClient()
-      .channel('notes_changes')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'notes',
-        },
-        (payload) => callback(payload),
-      )
-      .subscribe();
   },
 };
 
@@ -227,65 +282,43 @@ export const notes = {
  */
 export const music = {
   async getAll() {
-    const user = await getSafeBrowserUser();
+    const user = await getCachedUser();
     if (!user) throw new Error('Not authenticated');
 
-    const data = await selectWithOrder('music_tracks', '*', [['user_id', user.id]]);
-    return data || [];
+    const key = cacheKey('music_tracks', [['user_id', user.id]]);
+    const cached = getCachedData(key);
+    if (cached) return cached;
+
+    const data = await smartSelect('music_tracks', '*', [['user_id', user.id]]);
+    setCachedData(key, data);
+    return data;
   },
 
   async create(title: string, artist: string, fileUrl: string) {
-    const user = await getSafeBrowserUser();
+    const user = await getCachedUser();
     if (!user) throw new Error('Not authenticated');
 
-    // Try inserting with the expected `file_url` column, but gracefully
-    // handle schema variations by retrying with alternative column names.
-    const client = getSupabaseClient();
-    const inserts = [
-      { title, artist, file_url: fileUrl, user_id: user.id },
-      { title, artist, url: fileUrl, user_id: user.id },
-      { title, artist, filePath: fileUrl, user_id: user.id },
-      { title, artist, user_id: user.id },
-    ];
-
-    for (const payload of inserts) {
-      const { data, error } = await client.from('music_tracks').insert([payload]).select().single();
-      if (!error) return data;
-      // if missing column, try next payload; rethrow on other errors
-      const errCode = (error as unknown as { code?: string }).code;
-      if (errCode && String(errCode) === '42703') {
-        continue;
-      }
-      throw error;
-    }
-    throw new Error('Failed to insert music track: no compatible schema found');
+    invalidateCache('music_tracks');
+    const { data, error } = await getSupabaseClient()
+      .from('music_tracks')
+      .insert([{ title, artist, file_url: fileUrl, user_id: user.id }])
+      .select()
+      .single();
+    if (error) throw error;
+    return data;
   },
 
   async delete(id: string) {
-    const user = await getSafeBrowserUser();
+    const user = await getCachedUser();
     if (!user) throw new Error('Not authenticated');
 
+    invalidateCache('music_tracks');
     const { error } = await getSupabaseClient()
       .from('music_tracks')
       .delete()
       .eq('id', id)
       .eq('user_id', user.id);
     if (error) throw error;
-  },
-
-  subscribe(callback: (change: unknown) => void) {
-    return getSupabaseClient()
-      .channel('music_changes')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'music_tracks',
-        },
-        (payload) => callback(payload),
-      )
-      .subscribe();
   },
 };
 
@@ -294,13 +327,16 @@ export const music = {
  */
 export const musicStorage = {
   async upload(file: File, userId: string): Promise<string> {
+    if (!file.name.toLowerCase().endsWith('.mp3')) {
+      throw new Error('Only MP3 files are allowed');
+    }
     const fileName = buildMusicStorageKey(userId, file.name);
     const { error } = await getSupabaseClient().storage.from(BUCKET_MUSIC).upload(fileName, file);
     if (error) throw new Error(`Failed to upload music file: ${error.message}`);
 
     const { data } = getSupabaseClient().storage.from(BUCKET_MUSIC).getPublicUrl(fileName);
     if (!data.publicUrl) throw new Error('Failed to generate public URL for music file');
-    
+    invalidateCache('music_tracks');
     return data.publicUrl;
   },
 
@@ -315,17 +351,23 @@ export const musicStorage = {
  */
 export const gallery = {
   async getFolders() {
-    const user = await getSafeBrowserUser();
+    const user = await getCachedUser();
     if (!user) throw new Error('Not authenticated');
 
-    const data = await selectWithOrder('gallery_folders', '*', [['user_id', user.id]]);
-    return data || [];
+    const key = cacheKey('gallery_folders', [['user_id', user.id]]);
+    const cached = getCachedData(key);
+    if (cached) return cached;
+
+    const data = await smartSelect('gallery_folders', '*', [['user_id', user.id]]);
+    setCachedData(key, data);
+    return data;
   },
 
   async createFolder(name: string) {
-    const user = await getSafeBrowserUser();
+    const user = await getCachedUser();
     if (!user) throw new Error('Not authenticated');
 
+    invalidateCache('gallery_folders');
     const { data, error } = await getSupabaseClient()
       .from('gallery_folders')
       .insert([{ name, user_id: user.id }])
@@ -336,9 +378,11 @@ export const gallery = {
   },
 
   async deleteFolder(id: string) {
-    const user = await getSafeBrowserUser();
+    const user = await getCachedUser();
     if (!user) throw new Error('Not authenticated');
 
+    invalidateCache('gallery_folders');
+    invalidateCache('gallery_images');
     const { error } = await getSupabaseClient()
       .from('gallery_folders')
       .delete()
@@ -348,12 +392,14 @@ export const gallery = {
   },
 
   async getImages(folderId: string) {
-    const user = await getSafeBrowserUser();
+    const user = await getCachedUser();
     if (!user) throw new Error('Not authenticated');
 
-    const data = await selectWithOrder('gallery_images', '*', [['folder_id', folderId], ['user_id', user.id]]);
-    // Normalize returned rows so UI always reads `file_url`.
-    // Some schemas use `image_url`, others `file_url` depending on setup.
+    const key = cacheKey('gallery_images', [['folder_id', folderId], ['user_id', user.id]]);
+    const cached = getCachedData(key);
+    if (cached) return cached;
+
+    const data = await smartSelect('gallery_images', '*', [['folder_id', folderId], ['user_id', user.id]]);
     const rows = Array.isArray(data) ? (data as unknown[]) : [];
     const normalized = rows.map((rowUnknown) => {
       const row = (rowUnknown ?? {}) as Record<string, unknown>;
@@ -370,60 +416,74 @@ export const gallery = {
           null,
       };
     });
+    setCachedData(key, normalized);
+    return normalized;
+  },
+
+  async getAllImages() {
+    const user = await getCachedUser();
+    if (!user) throw new Error('Not authenticated');
+
+    const key = cacheKey('gallery_images', [['user_id', user.id]]);
+    const cached = getCachedData(key);
+    if (cached) return cached;
+
+    const data = await smartSelect('gallery_images', '*', [['user_id', user.id]]);
+    const rows = Array.isArray(data) ? (data as unknown[]) : [];
+    const normalized = rows.map((rowUnknown) => {
+      const row = (rowUnknown ?? {}) as Record<string, unknown>;
+      return {
+        ...row,
+        file_url:
+          (row.file_url as string | null | undefined) ||
+          (row.image_url as string | null | undefined) ||
+          (row.url as string | null | undefined) ||
+          null,
+        uploaded_at:
+          (row.uploaded_at as string | null | undefined) ||
+          (row.created_at as string | null | undefined) ||
+          null,
+      };
+    });
+    setCachedData(key, normalized);
     return normalized;
   },
 
   async createImage(folderId: string, title: string, imageUrl: string) {
-    const user = await getSafeBrowserUser();
+    const user = await getCachedUser();
     if (!user) throw new Error('Not authenticated');
 
-    // Attempt inserts that cover common schema variants. If a column is missing
-    // (Postgres 42703), retry with alternate payload shapes.
-    const client = getSupabaseClient();
-    const inserts = [
-      { folder_id: folderId, title, image_url: imageUrl, file_url: imageUrl, user_id: user.id },
-      { folder_id: folderId, title, file_url: imageUrl, user_id: user.id },
-      { folder_id: folderId, title, url: imageUrl, user_id: user.id },
-      { folder_id: folderId, title, user_id: user.id },
-    ];
-
-    for (const payload of inserts) {
-      const { data, error } = await client.from('gallery_images').insert([payload]).select().single();
-      if (!error) {
-        const row = data as Record<string, unknown>;
-        return {
-          ...row,
-          file_url:
-            (row.file_url as string | null | undefined) ||
-            (row.image_url as string | null | undefined) ||
-            (row.url as string | null | undefined) ||
-            null,
-          uploaded_at:
-            (row.uploaded_at as string | null | undefined) ||
-            (row.created_at as string | null | undefined) ||
-            null,
-        };
-      }
-      const errCode = (error as unknown as { code?: string }).code;
-      if (errCode && String(errCode) === '42703') {
-        continue; // missing column, try next
-      }
-      throw error;
-    }
-    throw new Error('Failed to insert gallery image: no compatible schema found');
+    invalidateCache('gallery_images');
+    const { data, error } = await getSupabaseClient()
+      .from('gallery_images')
+      .insert([{ folder_id: folderId, title, file_url: imageUrl, user_id: user.id }])
+      .select()
+      .single();
+    if (error) throw error;
+    const row = data as Record<string, unknown>;
+    return {
+      ...row,
+      file_url:
+        (row.file_url as string | null | undefined) ||
+        (row.image_url as string | null | undefined) ||
+        (row.url as string | null | undefined) ||
+        null,
+      uploaded_at:
+        (row.uploaded_at as string | null | undefined) ||
+        (row.created_at as string | null | undefined) ||
+        null,
+    };
   },
 
-  // Compatibility wrapper: some components call `gallery.addImage(folderId, imageUrl, title)`
-  // while the canonical method is `createImage(folderId, title, imageUrl)`.
-  // Provide `addImage` to avoid runtime errors and preserve expected argument order.
   async addImage(folderId: string, imageUrl: string, title: string) {
     return await gallery.createImage(folderId, title, imageUrl);
   },
 
   async deleteImage(id: string) {
-    const user = await getSafeBrowserUser();
+    const user = await getCachedUser();
     if (!user) throw new Error('Not authenticated');
 
+    invalidateCache('gallery_images');
     const { error } = await getSupabaseClient()
       .from('gallery_images')
       .delete()
@@ -437,12 +497,11 @@ export const gallery = {
       .channel('gallery_folders_changes')
       .on(
         'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'gallery_folders',
+        { event: '*', schema: 'public', table: 'gallery_folders' },
+        (payload) => {
+          invalidateCache('gallery_folders');
+          callback(payload);
         },
-        (payload) => callback(payload),
       )
       .subscribe();
   },
@@ -452,13 +511,11 @@ export const gallery = {
       .channel(`gallery_images_${folderId}`)
       .on(
         'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'gallery_images',
-          filter: `folder_id=eq.${folderId}`,
+        { event: '*', schema: 'public', table: 'gallery_images', filter: `folder_id=eq.${folderId}` },
+        (payload) => {
+          invalidateCache('gallery_images');
+          callback(payload);
         },
-        (payload) => callback(payload),
       )
       .subscribe();
   },
@@ -469,13 +526,18 @@ export const gallery = {
  */
 export const galleryStorage = {
   async upload(file: File, userId: string, folderId: string): Promise<string> {
+    const ext = file.name.toLowerCase().match(/\.[^./\\]+$/)?.[0] || '';
+    const allowed = ['.png', '.jpg', '.jpeg'];
+    if (!allowed.includes(ext)) {
+      throw new Error('Only PNG and JPG/JPEG images are allowed');
+    }
     const fileName = `${userId}/${folderId}/${Date.now()}_${file.name}`;
     const { error } = await getSupabaseClient().storage.from(BUCKET_GALLERY).upload(fileName, file);
     if (error) throw new Error(`Failed to upload gallery image: ${error.message}`);
 
     const { data } = getSupabaseClient().storage.from(BUCKET_GALLERY).getPublicUrl(fileName);
     if (!data.publicUrl) throw new Error('Failed to generate public URL for gallery image');
-    
+    invalidateCache('gallery_images');
     return data.publicUrl;
   },
 
@@ -490,17 +552,23 @@ export const galleryStorage = {
  */
 export const letters = {
   async getAll() {
-    const user = await getSafeBrowserUser();
+    const user = await getCachedUser();
     if (!user) throw new Error('Not authenticated');
 
-    const data = await selectWithOrder('letters', '*', [['user_id', user.id]]);
-    return data || [];
+    const key = cacheKey('letters', [['user_id', user.id]]);
+    const cached = getCachedData(key);
+    if (cached) return cached;
+
+    const data = await smartSelect('letters', '*', [['user_id', user.id]]);
+    setCachedData(key, data);
+    return data;
   },
 
   async create(title: string, content: string, recipient?: string) {
-    const user = await getSafeBrowserUser();
+    const user = await getCachedUser();
     if (!user) throw new Error('Not authenticated');
 
+    invalidateCache('letters');
     const { data, error } = await getSupabaseClient()
       .from('letters')
       .insert([{ title, content, recipient, user_id: user.id }])
@@ -511,9 +579,10 @@ export const letters = {
   },
 
   async update(id: string, title: string, content: string, recipient?: string) {
-    const user = await getSafeBrowserUser();
+    const user = await getCachedUser();
     if (!user) throw new Error('Not authenticated');
 
+    invalidateCache('letters');
     const { data, error } = await getSupabaseClient()
       .from('letters')
       .update({ title, content, recipient, updated_at: new Date().toISOString() })
@@ -526,29 +595,15 @@ export const letters = {
   },
 
   async delete(id: string) {
-    const user = await getSafeBrowserUser();
+    const user = await getCachedUser();
     if (!user) throw new Error('Not authenticated');
 
+    invalidateCache('letters');
     const { error } = await getSupabaseClient()
       .from('letters')
       .delete()
       .eq('id', id)
       .eq('user_id', user.id);
     if (error) throw error;
-  },
-
-  subscribe(callback: (change: unknown) => void) {
-    return getSupabaseClient()
-      .channel('letters_changes')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'letters',
-        },
-        (payload) => callback(payload),
-      )
-      .subscribe();
   },
 };

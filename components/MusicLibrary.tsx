@@ -37,7 +37,13 @@ export default function MusicLibrary() {
 
   const handleUpload = async () => {
     if (files.length === 0) {
-      setUploadError('Choose one or more audio files to upload');
+      setUploadError('Choose one or more MP3 files to upload');
+      return;
+    }
+
+    const invalid = files.filter((f) => !f.name.toLowerCase().endsWith('.mp3'));
+    if (invalid.length > 0) {
+      setUploadError('Only MP3 files are allowed');
       return;
     }
 
@@ -112,13 +118,22 @@ export default function MusicLibrary() {
       <div className="panel">
         <div className="panel-title">☁️ Upload Track</div>
 
-        <label className="field-label">Audio file</label>
+        <label className="field-label">Audio file (MP3 only)</label>
         <input
           key={inputKey}
           type="file"
-          accept="audio/*"
+          accept=".mp3,audio/mpeg"
           multiple
-          onChange={(e) => setFiles(Array.from(e.target.files ?? []))}
+          onChange={(e) => {
+            const selected = Array.from(e.target.files ?? []);
+            const invalid = selected.filter((f) => !f.name.toLowerCase().endsWith('.mp3'));
+            if (invalid.length > 0) {
+              setUploadError('Only MP3 files are allowed');
+              setFiles([]);
+              return;
+            }
+            setFiles(selected);
+          }}
           className="field-input"
           style={{ padding: '8px 12px', fontSize: '12px', cursor: 'pointer' }}
         />
@@ -127,11 +142,11 @@ export default function MusicLibrary() {
           {selectedFilesLabel}
         </p>
 
-        {uploadError ? <p className="section-sub" style={{ color: '#f87171', marginBottom: '10px' }}>{uploadError}</p> : null}
+        {uploadError ? <p className="section-sub" style={{ color: 'var(--text)', marginBottom: '10px' }}>{uploadError}</p> : null}
 
         {uploadProgress ? (
-          <div style={{ marginBottom: '10px', padding: '10px 12px', borderRadius: 'var(--radius-sm)', border: '1px solid rgba(168,85,247,0.2)', background: 'rgba(168,85,247,0.08)' }}>
-            <p style={{ fontSize: '12px', fontWeight: 600, color: '#c084fc', marginBottom: '4px' }}>
+          <div style={{ marginBottom: '10px', padding: '10px 12px', borderRadius: 'var(--radius-sm)', border: '1px solid #ffffff44', background: 'rgba(255,255,255,0.04)' }}>
+            <p style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text)', marginBottom: '4px' }}>
               Uploading {uploadProgress.currentIndex}/{uploadProgress.total}
             </p>
             <p style={{ fontSize: '12px', color: 'var(--text2)' }}>{uploadProgress.fileName}</p>
@@ -146,8 +161,8 @@ export default function MusicLibrary() {
         </button>
 
         {currentTrack ? (
-          <div style={{ marginTop: '16px', padding: '14px', borderRadius: 'var(--radius-sm)', background: 'rgba(168,85,247,0.08)', border: '1px solid rgba(168,85,247,0.2)' }}>
-            <p style={{ fontSize: '12px', fontWeight: 600, color: '#c084fc', marginBottom: '4px' }}>Now Playing</p>
+          <div style={{ marginTop: '16px', padding: '14px', borderRadius: 'var(--radius-sm)', background: 'rgba(255,255,255,0.04)', border: '1px solid #ffffff44' }}>
+            <p style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text)', marginBottom: '4px' }}>Now Playing</p>
             <p style={{ fontSize: '13px', color: 'var(--text2)' }}>{currentTrack.title}</p>
             <p style={{ fontSize: '11px', color: 'var(--text3)', marginTop: '4px' }}>
               Use the player above to control playback from any page
