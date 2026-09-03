@@ -43,7 +43,9 @@ export default function LoginPage() {
 
       <div className="panel" style={{ position: 'static', width: '100%', maxWidth: 460, padding: '28px 26px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 18 }}>
-          <div className="nav-logo-icon" style={{ width: 46, height: 46, borderRadius: 14, fontSize: 20 }}>✨</div>
+          <div className="nav-logo-icon" style={{ width: 46, height: 46, borderRadius: 14, overflow: 'hidden' }}>
+            <img src="/favicon.ico" alt="PersonalHub" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+          </div>
           <div>
             <p style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.14em', color: 'var(--text3)', marginBottom: 4 }}>
               PersonalHub
