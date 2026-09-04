@@ -149,7 +149,7 @@ export function MusicUploadForm({ onDone }: { onDone?: () => void }) {
 }
 
 export default function MusicLibrary() {
-  const { tracks, staleTracks, currentTrack, isPlaying, loading, error, playTrack, togglePlay, refreshTracks, stop, removeStaleTracks } = useMusic();
+  const { tracks, staleTracks, currentTrack, isPlaying, loading, error, playTrack, togglePlay, refreshTracks, removeTrack, stop, removeStaleTracks } = useMusic();
 
   const [actionError, setActionError] = useState('');
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
@@ -171,6 +171,8 @@ export default function MusicLibrary() {
       if (currentTrack?.id === trackId) {
         stop();
       }
+      // Vanish instantly; server refresh confirms (restores on failure).
+      removeTrack(trackId);
 
       const result = await deleteMusicTrackAction(trackId);
       if (!result.success) {
@@ -180,6 +182,7 @@ export default function MusicLibrary() {
       void refreshTracks();
     } catch (err) {
       setActionError(err instanceof Error ? err.message : 'Delete failed');
+      void refreshTracks();
     }
   };
 

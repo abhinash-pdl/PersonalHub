@@ -9,7 +9,7 @@ import {
   deleteGalleryFolderAction,
   deleteGalleryImageAction,
 } from '@/app/actions';
-import { auth, classifyFileUrl, galleryStorage } from '@/lib/supabase';
+import { auth, classifyFileUrl, galleryStorage, resolveImageUrl } from '@/lib/supabase';
 import { useMobileAction } from '@/lib/mobile-actions';
 import { FolderIcon } from '@/components/icons';
 import { useRouter } from 'next/navigation';
@@ -38,7 +38,7 @@ interface GalleryFoldersProps {
 }
 
 /** Folder creation form shared by the desktop panel and the mobile 📁 FAB sheet. */
-export function FolderCreateForm({ onCreated }: { onCreated?: () => void }) {
+export function FolderCreateForm({ onCreated }: { onCreated?: (folder: GalleryFolder) => void }) {
   const router = useRouter();
   const [newFolderName, setNewFolderName] = useState('');
   const [creating, setCreating] = useState(false);
@@ -54,9 +54,19 @@ export function FolderCreateForm({ onCreated }: { onCreated?: () => void }) {
     setError('');
 
     try {
-      await createGalleryFolderAction(newFolderName.trim());
+      const result = await createGalleryFolderAction(newFolderName.trim());
+      if (!result.success) {
+        throw new Error(result.error || 'Failed to create folder');
+      }
+      const createdRow = (
+        Array.isArray(result.data) ? result.data[0] : result.data
+      ) as { id?: unknown; name?: unknown; created_at?: unknown } | null | undefined;
       setNewFolderName('');
-      onCreated?.();
+      onCreated?.({
+        id: String(createdRow?.id || `local-${Date.now()}`),
+        name: String(createdRow?.name || newFolderName.trim()),
+        created_at: String((createdRow as { created_at?: unknown } | null | undefined)?.created_at || new Date().toISOString()),
+      });
       router.refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to create folder');
@@ -85,6 +95,20 @@ export function FolderCreateForm({ onCreated }: { onCreated?: () => void }) {
 
 export function GalleryFolders({ folders, onRefresh }: GalleryFoldersProps) {
   const [folderSheetOpen, setFolderSheetOpen] = useState(false);
+  // Session-created folders appear instantly; duplicates drop once server props arrive.
+  const [freshFolders, setFreshFolders] = useState<GalleryFolder[]>([]);
+  const displayFolders = useMemo(() => {
+    const seen = new Set(folders.map((f) => f.id));
+    return [...freshFolders.filter((f) => !seen.has(f.id)), ...folders];
+  }, [freshFolders, folders]);
+  const handleCreated = (folder: GalleryFolder) => {
+    setFreshFolders((prev) => [folder, ...prev]);
+    onRefresh?.();
+  };
+  const handleDeleted = (id: string) => {
+    setFreshFolders((prev) => prev.filter((f) => f.id !== id));
+    onRefresh?.();
+  };
 
   // Mobile 📁 FAB -> bottom-sheet folder composer (desktop keeps the inline form)
   useMobileAction(
@@ -94,7 +118,7 @@ export function GalleryFolders({ folders, onRefresh }: GalleryFoldersProps) {
 
   return (
     <div>
-      {folders.length === 0 ? (
+      {displayFolders.length === 0 ? (
         <div className="empty-state" style={{ marginBottom: '16px' }}>
           <div className="empty-icon">📁</div>
           <p>No folders yet</p>
@@ -102,11 +126,11 @@ export function GalleryFolders({ folders, onRefresh }: GalleryFoldersProps) {
         </div>
       ) : (
         <div className="folder-grid">
-          {folders.map((folder) => (
+          {displayFolders.map((folder) => (
             <GalleryFolderCard
               key={folder.id}
               folder={folder}
-              onDelete={() => onRefresh?.()}
+              onDelete={handleDeleted}
             />
           ))}
         </div>
@@ -114,15 +138,15 @@ export function GalleryFolders({ folders, onRefresh }: GalleryFoldersProps) {
 
       {/* Desktop inline form — hidden on mobile, replaced by the 📁 FAB sheet */}
       <div className="hide-mobile">
-        <FolderCreateForm onCreated={() => onRefresh?.()} />
+        <FolderCreateForm onCreated={handleCreated} />
       </div>
 
       {folderSheetOpen ? (
         <MobileSheet title="📁 New Folder" onClose={() => setFolderSheetOpen(false)}>
           <FolderCreateForm
-            onCreated={() => {
+            onCreated={(folder) => {
               setFolderSheetOpen(false);
-              onRefresh?.();
+              handleCreated(folder);
             }}
           />
         </MobileSheet>
@@ -133,7 +157,7 @@ export function GalleryFolders({ folders, onRefresh }: GalleryFoldersProps) {
 
 interface GalleryFolderCardProps {
   folder: GalleryFolder;
-  onDelete: () => void;
+  onDelete: (id: string) => void;
 }
 
 export function GalleryFolderCard({ folder, onDelete }: GalleryFolderCardProps) {
@@ -145,7 +169,7 @@ export function GalleryFolderCard({ folder, onDelete }: GalleryFolderCardProps) 
     setDeleting(true);
     try {
       await deleteGalleryFolderAction(folder.id);
-      onDelete();
+      onDelete(folder.id);
       router.refresh();
     } catch (error) {
       console.error('Failed to delete:', error);
@@ -207,6 +231,13 @@ export function GalleryImages({ images, folderId, onRefresh }: GalleryImagesProp
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const uploadInputRef = useRef<HTMLInputElement>(null);
+  // Session-added images render instantly (prepended) while the server
+  // round-trip completes; duplicates drop out once server props arrive.
+  const [freshImages, setFreshImages] = useState<GalleryImage[]>([]);
+  const displayImages = useMemo(() => {
+    const seen = new Set(images.map((i) => i.id));
+    return [...freshImages.filter((f) => !seen.has(f.id)), ...images];
+  }, [freshImages, images]);
 
   const openCamera = React.useCallback(() => {
     setCameraError('');
@@ -250,6 +281,23 @@ export function GalleryImages({ images, folderId, onRefresh }: GalleryImagesProp
       if (!result.success) {
         throw new Error(result.error || 'Upload failed');
       }
+
+      // Show it NOW with a client-signed URL; server data replaces it on refresh.
+      const createdRow = (
+        Array.isArray(result.data) ? result.data[0] : result.data
+      ) as { id?: unknown; title?: unknown } | null | undefined;
+      const signed = await resolveImageUrl(storagePath);
+      const newId = String(createdRow?.id || `local-${Date.now()}`);
+      setFreshImages((prev) => [
+        {
+          id: newId,
+          file_url: signed,
+          title: String(createdRow?.title || file.name),
+          uploaded_at: new Date().toISOString(),
+          folder_id: folderId,
+        },
+        ...prev,
+      ]);
 
       onRefresh?.();
       router.refresh();
@@ -433,10 +481,18 @@ export function GalleryImages({ images, folderId, onRefresh }: GalleryImagesProp
 
       {error ? <p className="section-sub" style={{ color: 'var(--text)', marginBottom: '10px' }}>{error}</p> : null}
 
-      {images.length > 0 ? (
+      {displayImages.length > 0 ? (
         <div className="photo-grid">
-          {images.map((image) => (
-            <GalleryImageCard key={image.id} image={image} onDelete={() => onRefresh?.()} />
+          {displayImages.map((image) => (
+            <GalleryImageCard
+              key={image.id}
+              image={image}
+              onDelete={(id) => {
+                // Vanish instantly; server refresh confirms.
+                setFreshImages((prev) => prev.filter((f) => f.id !== id));
+                onRefresh?.();
+              }}
+            />
           ))}
         </div>
       ) : (
@@ -452,7 +508,7 @@ export function GalleryImages({ images, folderId, onRefresh }: GalleryImagesProp
 
 interface GalleryImageCardProps {
   image: GalleryImage;
-  onDelete: () => void;
+  onDelete: (id: string) => void;
 }
 
 export function GalleryImageCard({ image, onDelete }: GalleryImageCardProps) {
@@ -468,7 +524,8 @@ export function GalleryImageCard({ image, onDelete }: GalleryImageCardProps) {
   const isStale = image.stale === true || classifyFileUrl(image.file_url) === 'stale';
   const showPlaceholder = !image.file_url || imgBroken || isStale;
   // Masonry rhythm: deterministic fallback ratio per photo + intrinsic ratio
-  // once the real file loads (Pinterest-style staggered placement).
+  // once the real file loads. The card reports a ratio bucket; CSS grid spans
+  // by bucket so placement flows row-major (newest across each row).
   const [naturalRatio, setNaturalRatio] = useState<string | null>(null);
   const fallbackRatio = useMemo(() => {
     const ratios = ['3 / 4', '1 / 1', '4 / 5', '3 / 4', '1 / 1', '4 / 3'];
@@ -476,6 +533,14 @@ export function GalleryImageCard({ image, onDelete }: GalleryImageCardProps) {
     for (const c of image.id) hash = (hash * 31 + c.charCodeAt(0)) >>> 0;
     return ratios[hash % ratios.length];
   }, [image.id]);
+  const ratioBucket = useMemo(() => {
+    const [w, h] = (naturalRatio ?? fallbackRatio).split('/').map(Number);
+    const r = w && h ? w / h : 1;
+    if (r >= 1.15) return 'landscape';
+    if (r >= 0.9) return 'square';
+    if (r >= 0.7) return 'portrait';
+    return 'tall';
+  }, [naturalRatio, fallbackRatio]);
 
   useEffect(() => {
     if (!lightbox) return;
@@ -494,7 +559,7 @@ export function GalleryImageCard({ image, onDelete }: GalleryImageCardProps) {
     setDeleting(true);
     try {
       await deleteGalleryImageAction(image.id);
-      onDelete();
+      onDelete(image.id);
       router.refresh();
     } catch (error) {
       console.error('Failed to delete:', error);
@@ -507,7 +572,7 @@ export function GalleryImageCard({ image, onDelete }: GalleryImageCardProps) {
     <>
       <div
         className="photo-card"
-        style={{ aspectRatio: naturalRatio ?? fallbackRatio }}
+        data-ratio={ratioBucket}
         onClick={() => !showPlaceholder && image.file_url && setLightbox(true)}
       >
         {!showPlaceholder && image.file_url ? (

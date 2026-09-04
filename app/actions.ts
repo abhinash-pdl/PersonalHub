@@ -91,17 +91,24 @@ export async function signInAction(email: string, password: string) {
 
 /**
  * Sign up with email and password using a server-backed Supabase client.
+ * Email confirmation is ON: a fresh signup gets a user but NO session until
+ * the inbox link is clicked — callers must handle `needsConfirmation`.
  */
 export async function signUpAction(email: string, password: string) {
   try {
     const supabase = await getAuthServerClient();
-    const { data, error } = await supabase.auth.signUp({ email, password });
+    const origin = await getPublicOrigin();
+    const { data, error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: { emailRedirectTo: `${origin}/auth/callback` },
+    });
 
     if (error) throw error;
 
-    return { success: true, user: data.user, session: data.session };
+    return { success: true, user: data.user, session: data.session, needsConfirmation: !data.session };
   } catch (error) {
-    return { success: false, error: (error as Error).message, user: null, session: null };
+    return { success: false, error: (error as Error).message, user: null, session: null, needsConfirmation: false };
   }
 }
 
@@ -606,7 +613,8 @@ export async function createGalleryImageAction(
     for (const payload of payloads) {
       const { data, error } = await supabase.from('gallery_images').insert([payload]).select();
       if (!error) {
-        revalidateDashboard(['/dashboard/gallery']);
+        // Revalidate the folder detail route too, not just the list.
+        revalidateDashboard(['/dashboard/gallery', `/dashboard/gallery/${folder_id}`]);
         return { success: true, data };
       }
 
@@ -648,7 +656,7 @@ export async function deleteGalleryImageAction(id: string) {
 
     const { data: row } = await supabase
       .from('gallery_images')
-      .select('file_url')
+      .select('file_url,folder_id')
       .eq('id', id)
       .eq('user_id', user.id)
       .single();
@@ -662,12 +670,16 @@ export async function deleteGalleryImageAction(id: string) {
     if (error) throw error;
 
     // Best-effort: remove the private-bucket object too (never fails the delete)
-    const path = extractBucketPath((row as { file_url?: unknown } | null)?.file_url, 'gallery-images');
+    const typedRow = row as { file_url?: unknown; folder_id?: unknown } | null;
+    const path = extractBucketPath(typedRow?.file_url, 'gallery-images');
     if (path) {
       await supabase.storage.from('gallery-images').remove([path]);
     }
 
-    revalidateDashboard(['/dashboard/gallery']);
+    const folderId = typedRow?.folder_id ? String(typedRow.folder_id) : null;
+    revalidateDashboard(
+      folderId ? ['/dashboard/gallery', `/dashboard/gallery/${folderId}`] : ['/dashboard/gallery'],
+    );
     return { success: true };
   } catch (error) {
     return { success: false, error: (error as Error).message };

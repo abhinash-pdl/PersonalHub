@@ -48,7 +48,7 @@ function normalizeFileUrl(row: Row): string | null {
 }
 
 const GALLERY_BUCKET = 'gallery-images';
-const IMAGE_URL_TTL_SECONDS = 60 * 60 * 24 * 7; // 7 days
+const IMAGE_URL_TTL_SECONDS = 60 * 60 * 24; // 24 hours
 
 function currentProjectHost(): string | null {
   try {

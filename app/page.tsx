@@ -59,7 +59,14 @@ export default function LoginPage() {
         router.push('/dashboard');
       }
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Authentication failed');
+      const message = err instanceof Error ? err.message : 'Authentication failed';
+      // Signup-with-confirmation is good news, not an error — show as notice.
+      if (message.startsWith('Account created')) {
+        setNotice(message);
+        setError('');
+      } else {
+        setError(message);
+      }
     } finally {
       setLoading(false);
     }

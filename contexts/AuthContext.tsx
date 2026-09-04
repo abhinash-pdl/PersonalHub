@@ -108,6 +108,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       const result = await signUpAction(email, password);
       if (!result.success) throw new Error(result.error || 'Signup failed');
+      if (result.needsConfirmation) {
+        throw new Error('Account created — check your inbox to confirm your email, then sign in.');
+      }
 
       const session = result.session;
       if (session) {

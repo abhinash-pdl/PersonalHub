@@ -71,7 +71,10 @@ export function isLoadableFileUrl(value: unknown): value is string {
 }
 
 // --- Private-bucket signed URLs -------------------------------------------
-const SIGNED_URL_TTL_SECONDS = 60 * 60 * 24 * 7; // 7 days
+// 24h expiry: short enough to bound a leaked URL's usefulness, long enough
+// that playback never dies mid-session. The player also re-resolves once on
+// load failure, so even an expired link self-heals instead of erroring.
+const SIGNED_URL_TTL_SECONDS = 60 * 60 * 24; // 24 hours
 const signedUrlCache = new Map<string, { url: string; expiresAt: number }>();
 
 /**

@@ -10,7 +10,7 @@ import React, {
   useState,
   ReactNode,
 } from 'react';
-import { classifyFileUrl, isLoadableFileUrl, music, resolveMusicUrl } from '@/lib/supabase';
+import { classifyFileUrl, dropCachedMediaUrl, isLoadableFileUrl, music, resolveMusicUrl } from '@/lib/supabase';
 
 export interface MusicTrack {
   id: string;
@@ -54,6 +54,7 @@ interface MusicLibraryContextType {
   audioError: string;
   refreshTracks: () => Promise<void>;
   upsertTrack: (track: MusicTrack) => void;
+  removeTrack: (id: string) => void;
   removeStaleTracks: () => void;
 }
 
@@ -162,6 +163,7 @@ export function MusicProvider({ children }: { children: ReactNode }) {
   const tracksRef = useRef<MusicTrack[]>([]);
   const currentTrackRef = useRef<MusicTrack | null>(null);
   const repeatModeRef = useRef<RepeatMode>('all');
+  const retryRef = useRef(new Map<string, number>());
   const progressListenersRef = useRef(new Set<ProgressListener>());
   const durationRef = useRef(0);
   const lastProgressEmitRef = useRef(0);
@@ -226,6 +228,14 @@ export function MusicProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
+  const removeTrack = useCallback((id: string) => {
+    setTracks((prev) => {
+      const next = prev.filter((t) => t.id !== id);
+      writeCachedTracks(next);
+      return next;
+    });
+  }, []);
+
   const removeStaleTracks = useCallback(() => {
     setStaleTracks([]);
   }, []);
@@ -249,6 +259,7 @@ export function MusicProvider({ children }: { children: ReactNode }) {
     writeSavedTrackId(track.id);
     emitProgress(0, durationRef.current, true);
     const token = ++playTokenRef.current;
+    retryRef.current.delete(track.id);
     const el = audioRef.current;
     if (!el) {
       setIsPlaying(true);
@@ -370,6 +381,27 @@ export function MusicProvider({ children }: { children: ReactNode }) {
 
     const onError = () => {
       const ct = currentTrackRef.current;
+      // One self-heal attempt: the signed URL may have expired mid-session —
+      // drop the cached link, mint a fresh one, and retry before giving up.
+      const key = ct ? ct.id : '';
+      const attempts = (retryRef.current.get(key) || 0) + 1;
+      retryRef.current.set(key, attempts);
+      if (ct && attempts <= 1) {
+        const el2 = audioRef.current;
+        dropCachedMediaUrl('music', ct.file_url);
+        void resolveMusicUrl(ct.file_url).then((src) => {
+          if (!src || currentTrackRef.current?.id !== ct.id) {
+            setAudioError(`"${ct.title || 'Track'}" couldn't load. Check your connection and storage access, or re-upload it.`);
+            setIsPlaying(false);
+            return;
+          }
+          if (el2) {
+            el2.src = src;
+            el2.play().catch(() => setIsPlaying(false));
+          }
+        });
+        return;
+      }
       setAudioError(
         ct
           ? `"${ct.title || 'Track'}" couldn't load. Check your connection and storage access, or re-upload it.`
@@ -466,8 +498,8 @@ export function MusicProvider({ children }: { children: ReactNode }) {
   }, [currentTrack]);
 
   const libraryValue = useMemo<MusicLibraryContextType>(
-    () => ({ tracks, staleTracks, loading, error: error || audioError, audioError, refreshTracks, upsertTrack, removeStaleTracks }),
-    [tracks, staleTracks, loading, error, audioError, refreshTracks, upsertTrack, removeStaleTracks],
+    () => ({ tracks, staleTracks, loading, error: error || audioError, audioError, refreshTracks, upsertTrack, removeTrack, removeStaleTracks }),
+    [tracks, staleTracks, loading, error, audioError, refreshTracks, upsertTrack, removeTrack, removeStaleTracks],
   );
 
   const playerValue = useMemo<MusicPlayerContextType>(
