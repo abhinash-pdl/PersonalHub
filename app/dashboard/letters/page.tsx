@@ -17,7 +17,7 @@ export default async function LettersPage() {
       </div>
 
       <div className="letters-layout">
-        {/* Desktop inline composer — hidden on mobile, replaced by the ✉️ FAB sheet */}
+
         <div className="panel hide-mobile">
           <div className="panel-title">✍️ Write Letter</div>
           <LetterEditor />
@@ -30,7 +30,6 @@ export default async function LettersPage() {
         </div>
       </div>
 
-      {/* Mobile-only bottom-sheet composer, opened by the ✉️ FAB */}
       <LetterComposerSheet />
     </div>
   );

@@ -1,15 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
 
-/**
- * Shared PKCE exchange for Supabase email links (recovery, invites, …).
- *
- * Handles every shape GoTrue may redirect back with:
- * 1. `?code=`                    — modern PKCE link → exchangeCodeForSession
- * 2. `?token_hash=&type=`        — token-hash link → verifyOtp
- * 3. `?error=&error_description=` — expired/used link → back to login with a
- *    readable reason instead of a silent landing.
- */
 export async function exchangeAuthCode(request: NextRequest, nextPath: string) {
   const { searchParams, origin } = new URL(request.url);
   const code = searchParams.get('code');
@@ -21,8 +12,6 @@ export async function exchangeAuthCode(request: NextRequest, nextPath: string) {
       `${origin}/?error=${encodeURIComponent(reason)}&msg=${encodeURIComponent(detail)}`,
     );
 
-  // GoTrue redirects here with error params when the link is expired,
-  // already used, or otherwise invalid.
   const upstreamError =
     searchParams.get('error_code') || (searchParams.get('error') && !code ? searchParams.get('error') : null);
   if (upstreamError && !code && !tokenHash) {

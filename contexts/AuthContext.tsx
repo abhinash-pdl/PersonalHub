@@ -3,8 +3,8 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState, ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
 import { User } from '@supabase/supabase-js';
-import { requestPasswordResetAction, signInAction, signOutAction, signUpAction, updatePasswordAction } from '@/app/actions';
-import { getCachedUser, getSupabaseClient, invalidateUserCache, withAuthRetry } from '@/lib/supabase';
+import { requestPasswordResetAction, signOutAction, updatePasswordAction } from '@/app/actions';
+import { getCachedUser, getSupabaseClient, invalidateUserCache } from '@/lib/supabase';
 
 interface AuthContextType {
   user: User | null;
@@ -27,7 +27,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       await getSupabaseClient().auth.signOut({ scope: 'local' });
     } catch {
-      // Ignore cleanup failures when the browser session is already invalid.
+
     }
   }, []);
 
@@ -35,16 +35,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     let cancelled = false;
     const checkAuth = async () => {
       try {
-        // Single shared cached lookup with lock retry — avoids Navigator
-        // LockManager contention with Music/Dashboard providers.
-        // getCachedUser() returns null ONLY on confirmed sign-out (it never
-        // throws for missing/invalid sessions), so a null here is safe to
-        // act on: leave protected routes for the login page.
+
         const cached = await getCachedUser();
         if (cancelled) return;
         setUser(cached);
         if (!cached && window.location.pathname.startsWith('/dashboard')) {
-          router.push('/');
+          router.replace('/');
         }
       } catch (error) {
         const message = String((error as { message?: unknown } | null | undefined)?.message || error);
@@ -53,7 +49,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           if (cancelled) return;
           setUser(null);
           if (window.location.pathname.startsWith('/dashboard')) {
-            router.push('/');
+            router.replace('/');
           }
         } else {
           console.error('Auth check error:', error);
@@ -65,13 +61,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     checkAuth();
 
-    // Keep in sync without extra getUser() calls. A SIGNED_OUT event with no
-    // session is authoritative — leave protected routes for the login page.
     const { data: { subscription } } = getSupabaseClient().auth.onAuthStateChange((_event, session) => {
       if (cancelled) return;
+      invalidateUserCache();
       setUser(session?.user ?? null);
       if (!session?.user && window.location.pathname.startsWith('/dashboard')) {
-        router.push('/');
+        router.replace('/');
       }
     });
     return () => {
@@ -83,21 +78,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const login = useCallback(async (email: string, password: string) => {
     setLoading(true);
     try {
-      const result = await signInAction(email, password);
-      if (!result.success) throw new Error(result.error || 'Login failed');
 
-      const session = result.session;
-      if (session) {
-        const { access_token, refresh_token } = session;
-        await withAuthRetry(() => getSupabaseClient().auth.setSession({
-          access_token,
-          refresh_token,
-        }));
-      }
+      const { data, error } = await getSupabaseClient().auth.signInWithPassword({ email, password });
+      if (error) throw error;
 
-      // Drop any cached signed-out state so data loads immediately.
       invalidateUserCache();
-      setUser(result.user);
+      setUser(data.user ?? data.session?.user ?? null);
     } finally {
       setLoading(false);
     }
@@ -106,24 +92,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const signup = useCallback(async (email: string, password: string) => {
     setLoading(true);
     try {
-      const result = await signUpAction(email, password);
-      if (!result.success) throw new Error(result.error || 'Signup failed');
-      if (result.needsConfirmation) {
+      const { data, error } = await getSupabaseClient().auth.signUp({
+        email,
+        password,
+        options: { emailRedirectTo: `${window.location.origin}/auth/callback` },
+      });
+      if (error) throw error;
+      if (!data.session) {
         throw new Error('Account created — check your inbox to confirm your email, then sign in.');
       }
 
-      const session = result.session;
-      if (session) {
-        const { access_token, refresh_token } = session;
-        await withAuthRetry(() => getSupabaseClient().auth.setSession({
-          access_token,
-          refresh_token,
-        }));
-      }
-
-      // Drop any cached signed-out state so data loads immediately.
       invalidateUserCache();
-      setUser(result.user);
+      setUser(data.user ?? data.session.user);
     } finally {
       setLoading(false);
     }

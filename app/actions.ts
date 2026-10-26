@@ -1,11 +1,5 @@
 'use server';
 
-/**
- * Secure server actions for database operations.
- * These run server-side and cannot be bypassed or manipulated by client-side code.
- * All operations are validated against the authenticated user's session.
- */
-
 import { createServerClient } from '@supabase/ssr';
 import { revalidatePath } from 'next/cache';
 import { cookies } from 'next/headers';
@@ -17,10 +11,7 @@ function revalidateDashboard(paths: string[]) {
   }
 }
 
-/**
- * Get the authenticated user's session server-side.
- * This is more secure than client-only auth checks.
- */
+// Server mutations verify the token with the Auth server.
 async function getAuthenticatedUser() {
   const cookieStore = await cookies();
   const supabase = createServerClient(
@@ -72,49 +63,6 @@ async function getAuthServerClient() {
   );
 }
 
-/**
- * Sign in with email and password using a server-backed Supabase client so the
- * dashboard proxy can see the session cookies immediately.
- */
-export async function signInAction(email: string, password: string) {
-  try {
-    const supabase = await getAuthServerClient();
-    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-
-    if (error) throw error;
-
-    return { success: true, user: data.user, session: data.session };
-  } catch (error) {
-    return { success: false, error: (error as Error).message, user: null, session: null };
-  }
-}
-
-/**
- * Sign up with email and password using a server-backed Supabase client.
- * Email confirmation is ON: a fresh signup gets a user but NO session until
- * the inbox link is clicked — callers must handle `needsConfirmation`.
- */
-export async function signUpAction(email: string, password: string) {
-  try {
-    const supabase = await getAuthServerClient();
-    const origin = await getPublicOrigin();
-    const { data, error } = await supabase.auth.signUp({
-      email,
-      password,
-      options: { emailRedirectTo: `${origin}/auth/callback` },
-    });
-
-    if (error) throw error;
-
-    return { success: true, user: data.user, session: data.session, needsConfirmation: !data.session };
-  } catch (error) {
-    return { success: false, error: (error as Error).message, user: null, session: null, needsConfirmation: false };
-  }
-}
-
-/**
- * Sign out and clear the server session cookies.
- */
 export async function signOutAction() {
   try {
     const supabase = await getAuthServerClient();
@@ -128,28 +76,19 @@ export async function signOutAction() {
   }
 }
 
-/**
- * Resolve the public origin for absolute redirect URLs (password recovery).
- * Prefers the request origin, falls back to the configured site URL.
- */
 async function getPublicOrigin() {
   try {
     const { headers } = await import('next/headers');
     const origin = (await headers()).get('origin');
     if (origin) return origin;
   } catch {
-    // ignore — fall through to env default
+
   }
   const site = process.env.NEXT_PUBLIC_SITE_URL;
   if (site) return site.replace(/\/$/, '');
   return 'http://localhost:3000';
 }
 
-/**
- * Send a password-recovery email (no session required).
- * The email links to /auth/callback?next=/reset-password which establishes
- * a recovery session, then lands on the reset form.
- */
 export async function requestPasswordResetAction(email: string) {
   try {
     const clean = email.trim().toLowerCase();
@@ -165,18 +104,12 @@ export async function requestPasswordResetAction(email: string) {
 
     if (error) throw error;
 
-    // Always respond generically so emails can't be enumerated.
     return { success: true };
   } catch (error) {
     return { success: false, error: (error as Error).message };
   }
 }
 
-/**
- * Set a new password for the currently authenticated user.
- * Works for both recovery sessions (after email link) and logged-in users
- * changing their password. Supabase signs out other sessions on change.
- */
 export async function updatePasswordAction(newPassword: string) {
   try {
     if (!newPassword || newPassword.length < 6) {
@@ -196,11 +129,6 @@ export async function updatePasswordAction(newPassword: string) {
   }
 }
 
-/**
- * Verify a password against the given email (used to confirm the current
- * password before allowing a change). Uses an isolated in-memory client so
- * the caller's real session cookies are never touched.
- */
 export async function verifyPasswordAction(email: string, password: string) {
   try {
     const supabase = createServerClient(
@@ -216,9 +144,6 @@ export async function verifyPasswordAction(email: string, password: string) {
   }
 }
 
-/**
- * Create a note (server-side validation)
- */
 export async function createNoteAction(title: string, content: string) {
   try {
     const user = await getAuthenticatedUser();
@@ -260,9 +185,6 @@ export async function createNoteAction(title: string, content: string) {
   }
 }
 
-/**
- * Update a note (server-side validation)
- */
 export async function updateNoteAction(id: string, title: string, content: string) {
   try {
     const user = await getAuthenticatedUser();
@@ -289,7 +211,7 @@ export async function updateNoteAction(id: string, title: string, content: strin
       .from('notes')
       .update({ title, content })
       .eq('id', id)
-      .eq('user_id', user.id) // Ensure user owns this note
+      .eq('user_id', user.id)
       .select();
 
     if (error) throw error;
@@ -300,9 +222,6 @@ export async function updateNoteAction(id: string, title: string, content: strin
   }
 }
 
-/**
- * Delete a note (server-side validation)
- */
 export async function deleteNoteAction(id: string) {
   try {
     const user = await getAuthenticatedUser();
@@ -329,7 +248,7 @@ export async function deleteNoteAction(id: string) {
       .from('notes')
       .delete()
       .eq('id', id)
-      .eq('user_id', user.id); // Ensure user owns this note
+      .eq('user_id', user.id);
 
     if (error) throw error;
     revalidateDashboard(['/dashboard/notes']);
@@ -339,9 +258,6 @@ export async function deleteNoteAction(id: string) {
   }
 }
 
-/**
- * Create a music track (server-side validation)
- */
 export async function createMusicTrackAction(title: string, artist: string, file_url: string) {
   try {
     const user = await getAuthenticatedUser();
@@ -392,10 +308,6 @@ export async function createMusicTrackAction(title: string, artist: string, file
   }
 }
 
-/**
- * Extract a private-bucket object path from a stored `file_url` (bare path or
- * absolute Supabase URL). Used to clean up storage objects on delete.
- */
 function extractBucketPath(stored: unknown, bucket: string): string | null {
   if (typeof stored !== 'string') return null;
   const v = stored.trim();
@@ -412,9 +324,6 @@ function extractBucketPath(stored: unknown, bucket: string): string | null {
   }
 }
 
-/**
- * Delete a music track (server-side validation)
- */
 export async function deleteMusicTrackAction(id: string) {
   try {
     const user = await getAuthenticatedUser();
@@ -452,7 +361,6 @@ export async function deleteMusicTrackAction(id: string) {
 
     if (error) throw error;
 
-    // Best-effort: remove the private-bucket object too (never fails the delete)
     const path = extractBucketPath((row as { file_url?: unknown } | null)?.file_url, 'music-files');
     if (path) {
       await supabase.storage.from('music-files').remove([path]);
@@ -465,9 +373,6 @@ export async function deleteMusicTrackAction(id: string) {
   }
 }
 
-/**
- * Create a gallery folder (server-side validation)
- */
 export async function createGalleryFolderAction(name: string) {
   try {
     const user = await getAuthenticatedUser();
@@ -508,9 +413,6 @@ export async function createGalleryFolderAction(name: string) {
   }
 }
 
-/**
- * Delete a gallery folder (server-side validation)
- */
 export async function deleteGalleryFolderAction(id: string) {
   try {
     const user = await getAuthenticatedUser();
@@ -533,7 +435,6 @@ export async function deleteGalleryFolderAction(id: string) {
       },
     );
 
-    // Collect the folder's image refs first so storage objects can be cleaned up
     const { data: imageRows } = await supabase
       .from('gallery_images')
       .select('id,file_url')
@@ -548,7 +449,6 @@ export async function deleteGalleryFolderAction(id: string) {
 
     if (error) throw error;
 
-    // Best-effort cleanup of orphaned rows + private-bucket objects
     const rows = Array.isArray(imageRows) ? imageRows : [];
     if (rows.length > 0) {
       await supabase
@@ -571,9 +471,6 @@ export async function deleteGalleryFolderAction(id: string) {
   }
 }
 
-/**
- * Create a gallery image (server-side validation)
- */
 export async function createGalleryImageAction(
   folder_id: string | null,
   file_url: string,
@@ -613,7 +510,7 @@ export async function createGalleryImageAction(
     for (const payload of payloads) {
       const { data, error } = await supabase.from('gallery_images').insert([payload]).select();
       if (!error) {
-        // Revalidate the folder detail route too, not just the list.
+
         revalidateDashboard(['/dashboard/gallery', `/dashboard/gallery/${folder_id}`]);
         return { success: true, data };
       }
@@ -629,9 +526,6 @@ export async function createGalleryImageAction(
   }
 }
 
-/**
- * Delete a gallery image (server-side validation)
- */
 export async function deleteGalleryImageAction(id: string) {
   try {
     const user = await getAuthenticatedUser();
@@ -669,7 +563,6 @@ export async function deleteGalleryImageAction(id: string) {
 
     if (error) throw error;
 
-    // Best-effort: remove the private-bucket object too (never fails the delete)
     const typedRow = row as { file_url?: unknown; folder_id?: unknown } | null;
     const path = extractBucketPath(typedRow?.file_url, 'gallery-images');
     if (path) {
@@ -686,9 +579,6 @@ export async function deleteGalleryImageAction(id: string) {
   }
 }
 
-/**
- * Create a letter (server-side validation)
- */
 export async function createLetterAction(
   recipientName: string,
   content: string,
@@ -731,9 +621,6 @@ export async function createLetterAction(
   }
 }
 
-/**
- * Delete a letter (server-side validation)
- */
 export async function deleteLetterAction(id: string) {
   try {
     const user = await getAuthenticatedUser();
@@ -770,9 +657,6 @@ export async function deleteLetterAction(id: string) {
   }
 }
 
-/**
- * Update a letter (server-side validation)
- */
 export async function updateLetterAction(
   id: string,
   recipientName: string,

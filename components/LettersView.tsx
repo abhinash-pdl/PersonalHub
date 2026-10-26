@@ -205,7 +205,7 @@ export function LetterCard({ letter, onDelete }: LetterCardProps) {
         throw new Error(result.error || 'Failed to update letter');
       }
       setEditing(false);
-      // Close so reopening reads fresh props (local edit state is stale after save)
+
       setExpanded(false);
       onDelete?.();
       router.refresh();

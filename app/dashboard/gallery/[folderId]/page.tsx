@@ -10,7 +10,6 @@ interface FolderPageProps {
   params: Promise<{ folderId: string }>;
 }
 
-/** Inside a folder: photos + upload / camera (FABs on mobile). */
 export default async function GalleryFolderPage({ params }: FolderPageProps) {
   const { folderId } = await params;
   const [folders, images] = await Promise.all([
@@ -37,7 +36,7 @@ export default async function GalleryFolderPage({ params }: FolderPageProps) {
         </Link>
         <div>
           <div className="section-title">{name}</div>
-          <div className="section-sub">{images.length} photo{images.length === 1 ? '' : 's'}</div>
+          <div className="section-sub">Tap a photo to view or delete</div>
         </div>
       </div>
       <GalleryImages images={images} folderId={folderId} />

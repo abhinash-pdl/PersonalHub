@@ -7,8 +7,7 @@ const sora = Sora({
   variable: "--font-sora",
   subsets: ["latin"],
   weight: ["300", "400", "500", "600", "700", "800"],
-  // Unused weights were preloaded but never used (console warnings) —
-  // load font files on demand instead.
+
   preload: false,
 });
 

@@ -6,7 +6,6 @@ import { NoteEditor } from '@/components/NoteEditor';
 import { LetterEditor } from '@/components/LettersView';
 import MobileSheet from '@/components/MobileSheet';
 
-/** Mobile-only: opens the note composer as a bottom sheet when the notes FAB fires. */
 export function NoteComposerSheet() {
   const [open, setOpen] = useState(false);
   const close = useCallback(() => setOpen(false), []);
@@ -23,7 +22,6 @@ export function NoteComposerSheet() {
   );
 }
 
-/** Mobile-only: opens the letter composer as a bottom sheet when the letters FAB fires. */
 export function LetterComposerSheet() {
   const [open, setOpen] = useState(false);
   const close = useCallback(() => setOpen(false), []);

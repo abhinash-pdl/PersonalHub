@@ -32,7 +32,7 @@ function ResetForm() {
       setDone(true);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Could not reset password';
-      // Recovery session missing/expired — send them back to request a fresh link.
+
       setError(/session|token|expired|invalid/i.test(message) ? `${message}. Request a new reset link from the sign-in page.` : message);
     } finally {
       setLoading(false);

@@ -36,8 +36,7 @@ export function NoteEditor({ initialNote, onSave, onCancel }: NoteEditorProps) {
     setError('');
 
     try {
-      // Server actions resolve { success } instead of throwing — a failed
-      // insert must surface, not silently clear the form.
+
       const result = initialNote
         ? await updateNoteAction(initialNote.id, title, content)
         : await createNoteAction(title, content);
@@ -47,7 +46,7 @@ export function NoteEditor({ initialNote, onSave, onCancel }: NoteEditorProps) {
       setTitle('');
       setContent('');
       onSave?.();
-      // NotesGrid reads client-side context (not server props), so refresh it.
+
       await refresh();
       router.refresh();
     } catch (err) {
@@ -162,7 +161,7 @@ export function NoteItem({ note, onSelect, onDelete }: NoteItemProps) {
         throw new Error(result.error || 'Failed to update note');
       }
       setEditing(false);
-      // Close so reopening reads fresh props (local edit state is stale after save)
+
       setExpanded(false);
       onSelect?.({ ...note, title, content });
       router.refresh();

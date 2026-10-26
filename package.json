@@ -1,6 +1,6 @@
 {
   "name": "personalhub-next",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "private": true,
   "browserslist": [
     "last 1 Chrome version",
@@ -12,8 +12,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "tools:convert-images": "node ./scripts/convert-and-upload.js",
-    "lint": "eslint"
+    "lint": "eslint",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.5",

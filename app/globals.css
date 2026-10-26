@@ -102,7 +102,6 @@ body {
   flex-shrink: 0;
 }
 
-/* Real app logo (drop your artwork into public/icons/icon-192.png + icon-512.png) */
 .nav-logo-img {
   width: 32px;
   height: 32px;
@@ -148,7 +147,6 @@ body {
   background: color-mix(in srgb, var(--md-sys-color-primary) 14%, transparent);
 }
 
-/* Account dropdown (all widths): avatar icon button + dropdown panel */
 .nav-account {
   position: relative;
   margin-left: auto;
@@ -411,9 +409,7 @@ body {
 /* ===== MAIN CONTENT ===== */
 .main {
   position: relative;
-  /* No z-index here: this element must NOT create a stacking context,
-     otherwise fixed overlays rendered inside it (modals, sheets, camera)
-     can never paint above the navbar / bottom-nav / FABs. */
+
   padding-top: calc(var(--top-bar-height) + 16px);
   padding-bottom: calc(var(--bottom-nav-height) + var(--music-bar-height) + 24px);
   max-width: 1100px;
@@ -617,8 +613,6 @@ body {
   flex-shrink: 0;
 }
 
-
-
 .section-title { font-size: 24px; font-weight: 700; letter-spacing: -0.7px; color: var(--text); }
 .section-sub { font-size: 15px; color: var(--text3); margin-top: 2px; }
 
@@ -700,8 +694,7 @@ body {
 .btn-primary.cyan { background: #ffffff; color: #000000; }
 
 /* ===== NOTES GRID ===== */
-/* Single-column rows, same size as letter cards (was a narrow auto-fill grid
-   that squeezed cards small on wide screens). */
+
 .notes-grid {
   display: grid;
   grid-template-columns: 1fr;
@@ -764,20 +757,38 @@ body {
 .btn-delete:hover { color: #ffffff; background: rgba(255,255,255,0.08); }
 
 /* ===== GALLERY LAYOUT ===== */
-.gallery-layout {
+.gallery-layout,
+.gallery-detail-layout {
   display: grid;
-  grid-template-columns: 260px 1fr;
+  grid-template-columns: 300px minmax(0, 1fr);
   gap: 20px;
   align-items: start;
 }
 
+.gallery-main { min-width: 0; }
+
+.collection-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.collection-title { font-size: 17px; font-weight: 600; color: var(--text); }
+
+.panel-hint {
+  margin-top: 14px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text3);
+}
+
 .folder-grid {
   display: grid;
-  /* auto-fit (not auto-fill): empty tracks collapse instead of squeezing
-     real cards small and leaving a void. Fixed max keeps cards proper. */
-  grid-template-columns: repeat(auto-fit, minmax(160px, 200px));
-  justify-content: start;
-  gap: 12px;
+
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 14px;
   margin-bottom: 20px;
 }
 
@@ -785,7 +796,7 @@ body {
   border-radius: var(--radius);
   border: 1px solid var(--border);
   background: var(--surface);
-  padding: 20px 14px 16px;
+  padding: 24px 16px 18px;
   cursor: pointer;
   transition: var(--transition);
   text-align: center;
@@ -798,7 +809,6 @@ body {
 .folder-card:hover { border-color: var(--border2); transform: translateY(-2px); }
 .folder-card.active { border-color: #ffffff44; background: rgba(255,255,255,0.04); }
 
-/* Corner delete: keeps the card face clean (icon + name only) */
 .folder-card .btn-delete {
   position: absolute;
   top: 6px;
@@ -834,7 +844,6 @@ body {
 }
 .folder-name { font-size: 15px; font-weight: 600; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
-/* Desktop: keep the create-folder form a compact column, not full-width */
 .folder-create {
   max-width: 460px;
 }
@@ -852,7 +861,6 @@ body {
 
 .upload-zone:hover { border-color: #ffffff44; background: rgba(255,255,255,0.03); }
 
-/* Compact horizontal row on desktop: icon left, text right */
 .upload-label {
   cursor: pointer;
   display: flex;
@@ -865,19 +873,6 @@ body {
 .upload-text span { font-size: 14px; color: var(--text3); display: block; margin-top: 2px; }
 .upload-icon { font-size: 30px; flex-shrink: 0; }
 
-/* Desktop camera action: restrained button, not a full-width bar */
-.gallery-actions-mobile {
-  margin-bottom: 16px;
-  max-width: 640px;
-}
-
-.gallery-action-btn {
-  width: auto;
-}
-
-/* Pinterest-style masonry, ROW-major: grid auto-placement flows newest
-   across each row left-to-right (CSS columns would stack recency down one
-   column). Card height comes from a ratio span; photos cover-crop to fit. */
 .photo-grid {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
@@ -894,6 +889,16 @@ body {
   border: 1px solid var(--border);
   min-width: 0;
   margin: 0;
+  transition: transform var(--transition), border-color var(--transition), box-shadow var(--transition);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .photo-card:hover {
+    transform: translateY(-3px) scale(1.02);
+    border-color: var(--border2);
+    box-shadow: 0 12px 30px rgba(0, 0, 0, 0.5);
+    z-index: 2;
+  }
 }
 
 .photo-card[data-ratio='landscape'] { grid-row: span 12; }
@@ -910,27 +915,10 @@ body {
 .photo-card:hover .photo-overlay,
 .photo-card:focus-within .photo-overlay { opacity: 1; }
 
-/* Touch devices: no hover — keep a compact always-visible delete badge */
 @media (hover: none) {
   .photo-overlay {
     opacity: 1;
-    background: linear-gradient(to top, rgba(0, 0, 0, 0.55) 0%, transparent 45%);
-    align-items: flex-end;
-    justify-content: flex-end;
-    padding: 6px;
     pointer-events: none;
-  }
-
-  .photo-overlay .photo-delete-btn {
-    pointer-events: auto;
-    background: rgba(9, 7, 7, 0.8);
-    border: 1px solid var(--border2);
-    border-radius: 50%;
-    width: 36px;
-    height: 36px;
-    min-width: 36px;
-    min-height: 36px;
-    font-size: 16px;
   }
 }
 
@@ -948,13 +936,36 @@ body {
 .photo-overlay {
   position: absolute;
   inset: 0;
-  background: rgba(0,0,0,0.6);
+  background: linear-gradient(to bottom, rgba(0, 0, 0, 0.55) 0%, transparent 38%);
   opacity: 0;
   transition: opacity var(--transition);
   display: flex;
+  align-items: flex-start;
+  justify-content: flex-end;
+  padding: 8px;
+  pointer-events: none;
+}
+
+.photo-delete-btn {
+  pointer-events: auto;
+  width: 34px;
+  height: 34px;
+  min-width: 34px;
+  min-height: 34px;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid var(--border2);
+  background: rgba(9, 7, 7, 0.72);
+  color: #ffffff;
+  font-size: 15px;
+  line-height: 1;
+  display: flex;
   align-items: center;
   justify-content: center;
+  backdrop-filter: blur(4px);
 }
+
+.photo-delete-btn:hover { background: #b3261e; border-color: #b3261e; }
 
 /* ===== LETTERS LAYOUT ===== */
 .letters-layout {
@@ -1008,13 +1019,8 @@ body {
 
 .track-list { display: grid; gap: 8px; min-width: 0; }
 
-/* Grid items default to min-width:auto, which lets a long title force the
-   whole list wider than the viewport on mobile (rows bleed off-screen,
-   ⋯ pushed out of view, fixed bars misalign). Clamp the whole chain. */
 .track-list > * { min-width: 0; }
 
-/* Same grid-item overflow hazard for the other card grids (long titles on
-   narrow screens must ellipsis, never widen the page). */
 .notes-grid > *,
 .letter-cards > *,
 .folder-grid > * { min-width: 0; }
@@ -1144,12 +1150,10 @@ body {
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 4px; }
 
-/* ============================================================
-   TABLET BREAKPOINT (<= 1024px)
-   ============================================================ */
 @media (max-width: 1024px) {
   .notes-layout,
   .gallery-layout,
+  .gallery-detail-layout,
   .letters-layout,
   .music-layout {
     grid-template-columns: 1fr;
@@ -1165,9 +1169,6 @@ body {
   }
 }
 
-/* ============================================================
-   MOBILE BREAKPOINT (<= 860px)
-   ============================================================ */
 @media (max-width: 860px) {
   :root {
     --top-bar-height: 52px;
@@ -1206,7 +1207,6 @@ body {
     display: none;
   }
 
-  /* Music bar: compact, single row below navbar */
   .music-bar {
     position: fixed;
     top: var(--top-bar-height);
@@ -1261,7 +1261,6 @@ body {
     height: 14px;
   }
 
-  /* Compact seek scrubber stays visible on mobile (time labels hidden) */
   .music-progress {
     flex: 0 1 90px;
     min-width: 64px;
@@ -1294,7 +1293,6 @@ body {
     height: 14px;
   }
 
-  /* Mobile bottom navigation */
   .mobile-bottom-nav {
     display: grid;
     grid-template-columns: repeat(5, 1fr);
@@ -1341,14 +1339,12 @@ body {
     letter-spacing: 0.01em;
   }
 
-  /* Main content: account for top bar + music bar + bottom nav */
   .main {
     padding-top: calc(var(--top-bar-height) + 48px + 12px);
     padding-bottom: calc(var(--bottom-nav-height) + 16px + env(safe-area-inset-bottom, 0px));
     padding-inline: 14px;
   }
 
-  /* Gallery mobile */
   .folder-grid {
     grid-template-columns: repeat(auto-fit, minmax(104px, 1fr));
     gap: 10px;
@@ -1381,7 +1377,6 @@ body {
     font-size: 14px;
   }
 
-  /* Photo grid mobile */
   .photo-grid {
     grid-template-columns: repeat(2, 1fr);
     grid-auto-rows: 8px;
@@ -1412,7 +1407,6 @@ body {
     font-size: 15px;
   }
 
-  /* Music library mobile: roomy app-style rows, full-width tap targets */
   .track-list {
     gap: 10px;
   }
@@ -1438,7 +1432,6 @@ body {
     font-size: 14px;
   }
 
-  /* Notes mobile */
   .notes-grid {
     grid-template-columns: 1fr;
     gap: 10px;
@@ -1448,12 +1441,10 @@ body {
     padding: 14px;
   }
 
-  /* Letters mobile */
   .letter-card {
     padding: 14px;
   }
 
-  /* Panel mobile */
   .panel {
     padding: 16px;
     border-radius: var(--radius-sm);
@@ -1466,7 +1457,7 @@ body {
 
   .field-input {
     padding: 10px 12px;
-    font-size: 18px; /* Prevent iOS zoom */
+    font-size: 18px;
     margin-bottom: 10px;
   }
 
@@ -1474,17 +1465,8 @@ body {
     padding: 12px;
     font-size: 16px;
   }
-
-  /* Gallery action button full width on mobile */
-  .gallery-action-btn {
-    width: 100%;
-    margin-bottom: 12px;
-  }
 }
 
-/* ============================================================
-   SMALL MOBILE BREAKPOINT (<= 560px)
-   ============================================================ */
 @media (max-width: 560px) {
   :root {
     --top-bar-height: 48px;
@@ -1572,7 +1554,6 @@ body {
     padding-inline: 12px;
   }
 
-  /* Music bar compact */
   .music-bar {
     height: 44px;
     padding: 0 8px;
@@ -1609,7 +1590,6 @@ body {
     height: 12px;
   }
 
-  /* Bottom nav compact */
   .mobile-bottom-nav {
     padding: 4px 2px calc(4px + env(safe-area-inset-bottom, 0px));
   }
@@ -1628,14 +1608,12 @@ body {
     font-size: 12px;
   }
 
-  /* Photo grid */
   .photo-grid {
     grid-template-columns: repeat(2, 1fr);
     grid-auto-rows: 8px;
     gap: 8px;
   }
 
-  /* Upload zone */
   .upload-zone {
     padding: 16px;
   }
@@ -1652,7 +1630,6 @@ body {
     font-size: 24px;
   }
 
-  /* Empty state */
   .empty-state {
     padding: 32px 16px;
   }
@@ -1687,9 +1664,6 @@ body {
   }
 }
 
-/* ============================================================
-   EXPANDABLE CARD MODAL / LIGHTBOX
-   ============================================================ */
 .expand-overlay {
   position: fixed;
   inset: 0;
@@ -1838,8 +1812,7 @@ body {
 
 /* ===== MODAL / OVERLAY MOBILE FIXES ===== */
 @media (max-width: 860px) {
-  /* Centered modals: they must clear the top bar AND the bottom nav + FAB,
-     and never slide underneath them. */
+
   .expand-overlay {
     padding: 16px;
     align-items: center;
@@ -1906,21 +1879,14 @@ body {
   }
 }
 
-/* ===== GALLERY MOBILE ACTIONS ===== */
-@media (max-width: 860px) {
-  .gallery-actions-mobile {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    margin-bottom: 12px;
+/* ===== GALLERY MOBILE LAYOUT ===== */
+@media (max-width: 560px) {
+  .folder-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
   }
 
-  .gallery-header-mobile {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin-bottom: 12px;
-  }
+  .folder-card { padding: 18px 10px 14px; }
 }
 
 /* ===== RESPONSIVE HELPERS ===== */
@@ -1932,14 +1898,6 @@ body {
 
 @media (min-width: 861px) {
   .show-mobile-only {
-    display: none !important;
-  }
-}
-
-/* Real desktops (mouse + hover) never get mobile FABs — even in a narrow
-   or zoomed window where the width queries match. Touch devices keep them. */
-@media (hover: hover) and (pointer: fine) {
-  .quick-actions {
     display: none !important;
   }
 }

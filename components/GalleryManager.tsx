@@ -28,7 +28,7 @@ interface GalleryImage {
   title: string;
   uploaded_at: string | null;
   folder_id?: string | null;
-  /** True when the stored ref points at the dead previous project (re-upload needed). */
+
   stale?: boolean;
 }
 
@@ -37,7 +37,6 @@ interface GalleryFoldersProps {
   onRefresh?: () => void;
 }
 
-/** Folder creation form shared by the desktop panel and the mobile 📁 FAB sheet. */
 export function FolderCreateForm({ onCreated }: { onCreated?: (folder: GalleryFolder) => void }) {
   const router = useRouter();
   const [newFolderName, setNewFolderName] = useState('');
@@ -77,7 +76,7 @@ export function FolderCreateForm({ onCreated }: { onCreated?: (folder: GalleryFo
 
   return (
     <div className="folder-create">
-      <label className="field-label">New Folder</label>
+      <label className="field-label">Folder name</label>
       <input
         type="text"
         value={newFolderName}
@@ -95,7 +94,7 @@ export function FolderCreateForm({ onCreated }: { onCreated?: (folder: GalleryFo
 
 export function GalleryFolders({ folders, onRefresh }: GalleryFoldersProps) {
   const [folderSheetOpen, setFolderSheetOpen] = useState(false);
-  // Session-created folders appear instantly; duplicates drop once server props arrive.
+
   const [freshFolders, setFreshFolders] = useState<GalleryFolder[]>([]);
   const displayFolders = useMemo(() => {
     const seen = new Set(folders.map((f) => f.id));
@@ -110,35 +109,44 @@ export function GalleryFolders({ folders, onRefresh }: GalleryFoldersProps) {
     onRefresh?.();
   };
 
-  // Mobile 📁 FAB -> bottom-sheet folder composer (desktop keeps the inline form)
   useMobileAction(
     'composer:folder',
     React.useCallback(() => setFolderSheetOpen(true), []),
   );
 
   return (
-    <div>
-      {displayFolders.length === 0 ? (
-        <div className="empty-state" style={{ marginBottom: '16px' }}>
-          <div className="empty-icon">📁</div>
-          <p>No folders yet</p>
-          <span>Create your first folder to start organizing photos.</span>
-        </div>
-      ) : (
-        <div className="folder-grid">
-          {displayFolders.map((folder) => (
-            <GalleryFolderCard
-              key={folder.id}
-              folder={folder}
-              onDelete={handleDeleted}
-            />
-          ))}
-        </div>
-      )}
-
-      {/* Desktop inline form — hidden on mobile, replaced by the 📁 FAB sheet */}
-      <div className="hide-mobile">
+    <div className="gallery-layout">
+      <div className="panel hide-mobile">
+        <div className="panel-title"><FolderIcon /> New Folder</div>
         <FolderCreateForm onCreated={handleCreated} />
+        <p className="panel-hint">Open a folder to take photos or upload images.</p>
+      </div>
+
+      <div className="gallery-main">
+        <div className="collection-head">
+          <span className="collection-title">Your folders</span>
+          <span className="badge badge-purple">
+            {displayFolders.length} {displayFolders.length === 1 ? 'folder' : 'folders'}
+          </span>
+        </div>
+
+        {displayFolders.length === 0 ? (
+          <div className="empty-state">
+            <div className="empty-icon">📁</div>
+            <p>No folders yet</p>
+            <span>Create your first folder to start organizing photos.</span>
+          </div>
+        ) : (
+          <div className="folder-grid">
+            {displayFolders.map((folder) => (
+              <GalleryFolderCard
+                key={folder.id}
+                folder={folder}
+                onDelete={handleDeleted}
+              />
+            ))}
+          </div>
+        )}
       </div>
 
       {folderSheetOpen ? (
@@ -180,7 +188,7 @@ export function GalleryFolderCard({ folder, onDelete }: GalleryFolderCardProps) 
 
   return (
     <>
-      {/* Tapping a folder opens it as its own page: /dashboard/gallery/[folderId] */}
+
       <Link href={`/dashboard/gallery/${folder.id}`} prefetch className="folder-card" aria-label={`Open ${folder.name}`}>
         <div className="folder-icon"><FolderIcon /></div>
         <div className="folder-name">{folder.name}</div>
@@ -231,8 +239,7 @@ export function GalleryImages({ images, folderId, onRefresh }: GalleryImagesProp
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const uploadInputRef = useRef<HTMLInputElement>(null);
-  // Session-added images render instantly (prepended) while the server
-  // round-trip completes; duplicates drop out once server props arrive.
+
   const [freshImages, setFreshImages] = useState<GalleryImage[]>([]);
   const displayImages = useMemo(() => {
     const seen = new Set(images.map((i) => i.id));
@@ -245,7 +252,6 @@ export function GalleryImages({ images, folderId, onRefresh }: GalleryImagesProp
     setCameraOpen(true);
   }, []);
 
-  // Mobile FABs (📷 camera / 🖼️ upload inside a folder)
   useMobileAction('gallery:camera', openCamera);
   useMobileAction(
     'gallery:upload',
@@ -275,14 +281,12 @@ export function GalleryImages({ images, folderId, onRefresh }: GalleryImagesProp
         throw new Error('Not authenticated');
       }
 
-      // Private bucket: upload returns the object path, stored in `file_url`.
       const storagePath = await galleryStorage.upload(file, user.id, folderId);
       const result = await createGalleryImageAction(folderId, storagePath, file.name);
       if (!result.success) {
         throw new Error(result.error || 'Upload failed');
       }
 
-      // Show it NOW with a client-signed URL; server data replaces it on refresh.
       const createdRow = (
         Array.isArray(result.data) ? result.data[0] : result.data
       ) as { id?: unknown; title?: unknown } | null | undefined;
@@ -391,8 +395,8 @@ export function GalleryImages({ images, folderId, onRefresh }: GalleryImagesProp
   };
 
   return (
-    <div>
-      {/* Hidden pickers stay mounted so the mobile FABs can trigger them */}
+    <div className="gallery-detail-layout">
+
       <input
         ref={uploadInputRef}
         type="file"
@@ -407,7 +411,7 @@ export function GalleryImages({ images, folderId, onRefresh }: GalleryImagesProp
         aria-hidden="true"
         tabIndex={-1}
       />
-      {/* Native camera fallback: on mobile this opens the camera app directly */}
+
       <input
         type="file"
         accept="image/*"
@@ -422,26 +426,57 @@ export function GalleryImages({ images, folderId, onRefresh }: GalleryImagesProp
         tabIndex={-1}
       />
 
-      {/* Desktop upload UI — hidden on mobile, replaced by the 🖼️/📷 FABs */}
-      <div className="upload-zone hide-mobile">
-        <label htmlFor="image-upload" className="upload-label">
-          <div className="upload-icon">📸</div>
-          <div className="upload-text">
-            <p>Upload to selected folder</p>
-            <span>{uploading ? 'Uploading...' : 'Click or drag images here'}</span>
-          </div>
-        </label>
-      </div>
-
-      <div className="gallery-actions-mobile hide-mobile">
+      <div className="panel hide-mobile">
+        <div className="panel-title">📷 Add Photos</div>
+        <div className="upload-zone">
+          <label htmlFor="image-upload" className="upload-label">
+            <div className="upload-icon">🖼️</div>
+            <div className="upload-text">
+              <p>{uploading ? 'Uploading...' : 'Upload images'}</p>
+              <span>PNG or JPG</span>
+            </div>
+          </label>
+        </div>
         <button
           type="button"
-          className="btn-primary gallery-action-btn"
+          className="btn-primary"
           onClick={openCamera}
           style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
         >
-          📷 Take Photo with Camera
+          📷 Take Photo
         </button>
+      </div>
+
+      <div className="gallery-main">
+        <div className="collection-head">
+          <span className="collection-title">Your photos</span>
+          <span className="badge badge-purple">
+            {displayImages.length} {displayImages.length === 1 ? 'photo' : 'photos'}
+          </span>
+        </div>
+
+        {error ? <p className="section-sub" style={{ color: 'var(--text)', marginBottom: '10px' }}>{error}</p> : null}
+
+        {displayImages.length > 0 ? (
+          <div className="photo-grid">
+            {displayImages.map((image) => (
+              <GalleryImageCard
+                key={image.id}
+                image={image}
+                onDelete={(id) => {
+                  setFreshImages((prev) => prev.filter((f) => f.id !== id));
+                  onRefresh?.();
+                }}
+              />
+            ))}
+          </div>
+        ) : (
+          <div className="empty-state">
+            <div className="empty-icon">🖼️</div>
+            <p>No photos in this folder yet.</p>
+            <span>Upload your first image.</span>
+          </div>
+        )}
       </div>
 
       {cameraOpen ? (
@@ -478,30 +513,6 @@ export function GalleryImages({ images, folderId, onRefresh }: GalleryImagesProp
           </div>
         </div>
       ) : null}
-
-      {error ? <p className="section-sub" style={{ color: 'var(--text)', marginBottom: '10px' }}>{error}</p> : null}
-
-      {displayImages.length > 0 ? (
-        <div className="photo-grid">
-          {displayImages.map((image) => (
-            <GalleryImageCard
-              key={image.id}
-              image={image}
-              onDelete={(id) => {
-                // Vanish instantly; server refresh confirms.
-                setFreshImages((prev) => prev.filter((f) => f.id !== id));
-                onRefresh?.();
-              }}
-            />
-          ))}
-        </div>
-      ) : (
-        <div className="empty-state">
-          <div className="empty-icon">🖼️</div>
-          <p>No photos in this folder yet.</p>
-          <span>Upload your first image.</span>
-        </div>
-      )}
     </div>
   );
 }
@@ -517,15 +528,10 @@ export function GalleryImageCard({ image, onDelete }: GalleryImageCardProps) {
   const [lightbox, setLightbox] = useState(false);
   const [imgBroken, setImgBroken] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
-  // Rows pointing at a previous (dead) Supabase project can never load —
-  // don't even attempt the request, show the re-upload placeholder instead.
-  // `stale` arrives pre-computed from the server; the client check covers
-  // absolute URLs that bypassed server signing (e.g. optimistic refreshes).
+
   const isStale = image.stale === true || classifyFileUrl(image.file_url) === 'stale';
   const showPlaceholder = !image.file_url || imgBroken || isStale;
-  // Masonry rhythm: deterministic fallback ratio per photo + intrinsic ratio
-  // once the real file loads. The card reports a ratio bucket; CSS grid spans
-  // by bucket so placement flows row-major (newest across each row).
+
   const [naturalRatio, setNaturalRatio] = useState<string | null>(null);
   const fallbackRatio = useMemo(() => {
     const ratios = ['3 / 4', '1 / 1', '4 / 5', '3 / 4', '1 / 1', '4 / 3'];
@@ -604,7 +610,6 @@ export function GalleryImageCard({ image, onDelete }: GalleryImageCardProps) {
             aria-label="Delete image"
             onClick={(e) => { e.stopPropagation(); setConfirmOpen(true); }}
             disabled={deleting}
-            style={{ fontSize: '20px', padding: '8px', minWidth: '44px', minHeight: '44px' }}
           >
             {deleting ? '...' : '✕'}
           </button>
@@ -651,5 +656,3 @@ export function GalleryImageCard({ image, onDelete }: GalleryImageCardProps) {
     </>
   );
 }
-
-

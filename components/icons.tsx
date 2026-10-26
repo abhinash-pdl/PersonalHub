@@ -104,7 +104,6 @@ export function PauseIcon(props: IconProps) {
   );
 }
 
-/** Sleek folder mark matching the nav stroke style. */
 export function FolderIcon(props: IconProps) {
   return (
     <Svg {...props}>

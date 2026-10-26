@@ -7,10 +7,6 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import AppNav from '@/components/AppNav';
 
-/**
- * Account menu used on ALL widths: avatar icon button opens a dropdown with
- * the signed-in email, the Account page link, and Logout.
- */
 function AccountMenu({
   email,
   onLogout,

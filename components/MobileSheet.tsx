@@ -8,11 +8,6 @@ interface MobileSheetProps {
   children: React.ReactNode;
 }
 
-/**
- * Bottom-sheet container for mobile composers (new note / upload / letter / folder).
- * Desktop never renders this (FABs are mobile-only), but the same overlay doubles
- * as a centered modal on larger screens if ever reused.
- */
 export default function MobileSheet({ title, onClose, children }: MobileSheetProps) {
   const sheetRef = useRef<HTMLDivElement>(null);
 
@@ -22,7 +17,7 @@ export default function MobileSheet({ title, onClose, children }: MobileSheetPro
       if (e.key === 'Escape') onClose();
     };
     window.addEventListener('keydown', onKey);
-    // Focus first field for fast entry
+
     const t = setTimeout(() => {
       sheetRef.current?.querySelector<HTMLInputElement | HTMLTextAreaElement>('input, textarea')?.focus({ preventScroll: true });
     }, 80);

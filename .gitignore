@@ -38,10 +38,11 @@ yarn-error.log*
 .pnpm-debug.log*
 lerna-debug.log*
 
-# env files (can opt-in for committing if needed)
+# env files 
 .env
-.env.local
-.env.*.local
+.env.*
+.env*.local
+!.env.example
 
 # vercel
 .vercel
@@ -55,9 +56,29 @@ Thumbs.db
 .DS_Store
 
 
-# IDE
+
 .vscode/
 .idea/
 *.sublime-project
 *.sublime-workspace
-.env*.local
+
+
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+secrets/
+secret/
+credentials/
+**/service-role*
+**/service_role*
+**/*service*key*
+**/*supabase*keys*
+**/connection_string*
+**/connection-string*
+
+
+/docs/
+/scripts/
+/supabase/

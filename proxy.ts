@@ -1,14 +1,25 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
 
+function hasAuthCookie(request: NextRequest) {
+  return request.cookies
+    .getAll()
+    .some((c) => c.name.startsWith('sb-') && c.name.includes('auth-token'));
+}
+
 export async function proxy(request: NextRequest) {
   try {
     const { pathname } = request.nextUrl;
 
-    // These routes are always public — bail out immediately, no Supabase call needed
     const publicRoutes = ['/', '/sign-up'];
     if (publicRoutes.includes(pathname)) {
       return NextResponse.next();
+    }
+
+    if (!hasAuthCookie(request)) {
+      const loginUrl = request.nextUrl.clone();
+      loginUrl.pathname = '/';
+      return NextResponse.redirect(loginUrl);
     }
 
     let supabaseResponse = NextResponse.next({
@@ -46,26 +57,8 @@ export async function proxy(request: NextRequest) {
       },
     });
 
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-
-    if (!user) {
-      // Redirect only on confirmed sign-out (no session cookie at all).
-      // A present-but-unreadable session means a transient failure (token
-      // refresh race, Navigator lock contention across tabs) — booting to
-      // login on those kicks active users out mid-click. Let the request
-      // through; the client revalidates and redirects only when sign-out
-      // is confirmed.
-      const hasSessionCookie = request.cookies
-        .getAll()
-        .some((c) => c.name.startsWith('sb-') && c.name.includes('auth-token'));
-      if (!hasSessionCookie) {
-        const loginUrl = request.nextUrl.clone();
-        loginUrl.pathname = '/';
-        return NextResponse.redirect(loginUrl);
-      }
-    }
+    // Refreshes an expired token; unreadable cookies are left for the client to revalidate.
+    await supabase.auth.getSession();
 
     return supabaseResponse;
   } catch (error) {

@@ -92,8 +92,6 @@ export function DashboardDataProvider({ children }: { children: ReactNode }) {
     try {
       clearDataCache();
 
-      // Load data progressively — each query resolves independently
-      // so UI updates as soon as each batch arrives
       const loadNotes = async () => {
         try {
           const n = await notes.getAll();
@@ -178,7 +176,6 @@ export function DashboardDataProvider({ children }: { children: ReactNode }) {
         }
       };
 
-      // Fire all queries in parallel but don't block on the slowest one
       await Promise.allSettled([loadNotes(), loadTracks(), loadFolders(), loadImages(), loadLetters()]);
     } catch (error) {
       console.error('Error loading dashboard data:', error);

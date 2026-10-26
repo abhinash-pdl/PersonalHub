@@ -1,11 +1,5 @@
 'use server';
 
-/**
- * Server-side data fetching utilities for PersonalHub.
- * All data queries happen server-side only - never exposed to client.
- * Every operation is automatically protected by Supabase RLS policies.
- */
-
 import { cache } from 'react';
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
@@ -27,7 +21,6 @@ function isSafeHttpUrl(value: string | null): value is string {
   return /^https?:\/\//i.test(v);
 }
 
-/** Bare private-bucket object path, e.g. `<userId>/<folderId>/123_photo.jpg`. */
 function isStoragePath(value: string | null): value is string {
   if (!value) return false;
   const v = value.trim();
@@ -48,7 +41,7 @@ function normalizeFileUrl(row: Row): string | null {
 }
 
 const GALLERY_BUCKET = 'gallery-images';
-const IMAGE_URL_TTL_SECONDS = 60 * 60 * 24; // 24 hours
+const IMAGE_URL_TTL_SECONDS = 60 * 60 * 24;
 
 function currentProjectHost(): string | null {
   try {
@@ -60,11 +53,10 @@ function currentProjectHost(): string | null {
   }
 }
 
-/** Split a stored ref into a signable path, flagging cross-project (dead) URLs. */
 function splitGalleryRef(raw: string | null): { path: string | null; stale: boolean } {
   if (!raw) return { path: null, stale: false };
   const v: string = raw;
-  // Bare private-bucket path (plain checks here to avoid guard narrowing).
+
   const looksLikePath =
     v.includes('/') && !/[\s:]/.test(v) && /^[A-Za-z0-9_][A-Za-z0-9_.\-/]*\.[A-Za-z0-9]{2,5}$/.test(v);
   if (looksLikePath) return { path: v, stale: false };
@@ -73,7 +65,7 @@ function splitGalleryRef(raw: string | null): { path: string | null; stale: bool
   }
   const m = v.match(/\/storage\/v1\/object\/(?:public|sign|authenticated)\/([^/?#]+)\/(.+?)(?:[?#]|$)/);
   if (!m || m[1] !== GALLERY_BUCKET) {
-    // Absolute URL that isn't our storage (external or stale project file)
+
     try {
       const host = new URL(v).host;
       const current = currentProjectHost();
@@ -81,7 +73,7 @@ function splitGalleryRef(raw: string | null): { path: string | null; stale: bool
         return { path: null, stale: true };
       }
     } catch {
-      // ignore
+
     }
     return { path: null, stale: false };
   }
@@ -137,11 +129,6 @@ function mapGalleryRow(row: Row): MappedGalleryImage {
   };
 }
 
-/**
- * Resolve every row's stored ref to a signed URL (private bucket).
- * Rows pointing at the dead previous project keep file_url=null + stale=true
- * so the UI shows a re-upload placeholder instead of firing doomed requests.
- */
 async function withSignedImageUrls(
   supabase: StorageSigner,
   items: MappedGalleryImage[],
@@ -149,12 +136,12 @@ async function withSignedImageUrls(
   await Promise.all(
     items.map(async (item) => {
       if (!item.file_url) return;
-      // External (non-Supabase) URLs load directly.
+
       try {
         const host = new URL(item.file_url).host;
         if (!host.endsWith('.supabase.co')) return;
       } catch {
-        // bare path — falls through to signing
+
       }
       const { path, stale } = splitGalleryRef(item.file_url);
       if (stale) {
@@ -198,37 +185,53 @@ const getServerClient = cache(async () => {
           return cookieStore.getAll();
         },
         setAll(cookiesToSet) {
-          cookiesToSet.forEach(({ name, value, options }) => {
-            cookieStore.set(name, value, options);
-          });
+          try {
+            cookiesToSet.forEach(({ name, value, options }) => {
+              cookieStore.set(name, value, options);
+            });
+          } catch {
+            // Server Components cannot set cookies.
+          }
         },
       },
     },
   );
 });
 
-/**
- * Get authenticated user server-side.
- * Returns null when there is no valid session so read-only pages can render safely.
- * Cached per-request so parallel page fetches share one auth lookup.
- */
+// Read-only path: local JWT read; RLS authorizes every query.
 export const getAuthenticatedUser = cache(async (): Promise<User | null> => {
   const supabase = await getServerClient();
   const {
-    data: { user },
+    data: { session },
     error,
-  } = await supabase.auth.getUser();
+  } = await supabase.auth.getSession();
 
-  if (error || !user) {
+  if (error || !session?.access_token) {
     return null;
   }
 
-  return user;
+  const claims = decodeJwtPayload(session.access_token);
+  const id = typeof claims?.sub === 'string' ? claims.sub : null;
+  if (!id) {
+    return null;
+  }
+
+  return {
+    id,
+    email: typeof claims?.email === 'string' ? claims.email : undefined,
+  } as User;
 });
 
-/**
- * Lightweight counts for the dashboard home — avoids loading full row payloads.
- */
+function decodeJwtPayload(token: string): Record<string, unknown> | null {
+  try {
+    const payload = token.split('.')[1];
+    if (!payload) return null;
+    return JSON.parse(Buffer.from(payload, 'base64url').toString('utf8')) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+}
+
 export async function fetchDashboardCounts() {
   try {
     const user = await getAuthenticatedUser();
@@ -268,10 +271,6 @@ export async function fetchDashboardCounts() {
   }
 }
 
-/**
- * Fetch all notes for current user
- * Protected by RLS - only user's own notes returned
- */
 export const fetchNotes = cache(async () => {
   try {
     const user = await getAuthenticatedUser();
@@ -292,9 +291,6 @@ export const fetchNotes = cache(async () => {
   }
 });
 
-/**
- * Fetch all music tracks for current user
- */
 export const fetchMusicTracks = cache(async () => {
   try {
     const user = await getAuthenticatedUser();
@@ -321,9 +317,6 @@ export const fetchMusicTracks = cache(async () => {
   }
 });
 
-/**
- * Fetch all gallery folders for current user
- */
 export const fetchGalleryFolders = cache(async () => {
   try {
     const user = await getAuthenticatedUser();
@@ -344,9 +337,6 @@ export const fetchGalleryFolders = cache(async () => {
   }
 });
 
-/**
- * Fetch all images for a specific folder
- */
 export async function fetchGalleryImages(folderId: string) {
   try {
     const user = await getAuthenticatedUser();
@@ -368,9 +358,6 @@ export async function fetchGalleryImages(folderId: string) {
   }
 }
 
-/**
- * Fetch all gallery images across all folders
- */
 export const fetchAllGalleryImages = cache(async () => {
   try {
     const user = await getAuthenticatedUser();
@@ -391,9 +378,6 @@ export const fetchAllGalleryImages = cache(async () => {
   }
 });
 
-/**
- * Fetch all letters for current user
- */
 export const fetchLetters = cache(async () => {
   try {
     const user = await getAuthenticatedUser();
@@ -424,17 +408,13 @@ export const fetchLetters = cache(async () => {
   }
 });
 
-/**
- * Get current user's email (for UI display)
- */
 export const getCurrentUserEmail = cache(async () => {
   try {
     const user = await getAuthenticatedUser();
     if (!user) return null;
     return user.email || 'User';
   } catch {
-    // User not authenticated, return null to let middleware handle it
+
     return null;
   }
 });
-

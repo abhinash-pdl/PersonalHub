@@ -4,10 +4,6 @@ import React, { useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { verifyPasswordAction } from '@/app/actions';
 
-/**
- * Logged-in password change: verifies the current password first,
- * then sets the new one. Used on the account page.
- */
 export default function ChangePasswordForm() {
   const { user, updatePassword } = useAuth();
   const [current, setCurrent] = useState('');

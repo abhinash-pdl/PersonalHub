@@ -1,5 +1,5 @@
 import React from 'react';
-import { NoteEditor, NoteItem } from '@/components/NoteEditor';
+import { NoteEditor } from '@/components/NoteEditor';
 import { NotesGrid } from '@/components/NotesGrid';
 import { NoteComposerSheet } from '@/components/MobileComposers';
 
@@ -15,7 +15,7 @@ export default function NotesPage() {
       </div>
 
       <div className="notes-layout">
-        {/* Desktop inline composer — hidden on mobile, replaced by the 📝 FAB sheet */}
+
         <div className="panel hide-mobile">
           <div className="panel-title">✏️ Create Note</div>
           <NoteEditor />
@@ -26,7 +26,6 @@ export default function NotesPage() {
         </div>
       </div>
 
-      {/* Mobile-only bottom-sheet composer, opened by the 📝 FAB */}
       <NoteComposerSheet />
     </div>
   );

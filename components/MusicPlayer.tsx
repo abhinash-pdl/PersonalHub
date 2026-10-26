@@ -67,7 +67,7 @@ export function MusicPlayer({ tracks, onTrackDeleted }: MusicPlayerProps) {
 
   return (
     <div style={{ display: 'grid', gap: 16 }}>
-      {/* Player */}
+
       <div style={{ borderRadius: 12, border: '1px solid var(--border)', background: 'var(--surface)', padding: 24 }}>
         <div style={{ marginBottom: 16 }}>
           <h3 style={{ fontSize: 20, fontWeight: 600, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{currentTrack?.title}</h3>
@@ -101,7 +101,6 @@ export function MusicPlayer({ tracks, onTrackDeleted }: MusicPlayerProps) {
         </div>
       </div>
 
-      {/* Playlist */}
       <div style={{ display: 'grid', gap: 8, maxHeight: 256, overflowY: 'auto' }}>
         {tracks.map((track) => (
           <MusicTrackItem
@@ -167,12 +166,12 @@ export function MusicTrackItem({ track, isActive, onSelect, onDelete }: MusicTra
           handleDelete();
         }}
         disabled={deleting}
-        style={{ 
-          background: 'none', 
-          border: 'none', 
-          color: 'var(--text3)', 
-          cursor: 'pointer', 
-          fontSize: 14, 
+        style={{
+          background: 'none',
+          border: 'none',
+          color: 'var(--text3)',
+          cursor: 'pointer',
+          fontSize: 14,
           padding: '2px 6px',
           borderRadius: 4,
           marginLeft: 8,

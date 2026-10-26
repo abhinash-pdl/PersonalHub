@@ -11,11 +11,6 @@ interface SheetProps {
   onClose: () => void;
 }
 
-/**
- * Mobile-friendly bottom-sheet confirm dialog.
- * Replaces native confirm() which is unstyled/blocking on mobile.
- * Handles scroll-lock, Esc, and overlay-click close.
- */
 export default function Sheet({
   title,
   description,

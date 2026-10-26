@@ -19,10 +19,10 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
     return (
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh' }}>
         <div style={{ textAlign: 'center' }}>
-          <div style={{ 
-            width: 48, 
-            height: 48, 
-            borderRadius: '50%', 
+          <div style={{
+            width: 48,
+            height: 48,
+            borderRadius: '50%',
             border: '2px solid var(--border)',
             borderTopColor: 'var(--md-sys-color-primary)',
             animation: 'spin 1s linear infinite',
@@ -35,7 +35,7 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
   }
 
   if (!user) {
-    return null; // Router will handle the redirect
+    return null;
   }
 
   return <>{children}</>;

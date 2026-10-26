@@ -20,10 +20,6 @@ function titleFromFileName(fileName: string, index: number) {
   return withoutExtension || `Track ${index + 1}`;
 }
 
-/**
- * Upload form shared by the desktop sidebar panel and the mobile bottom-sheet.
- * On success calls onDone (mobile sheet closes itself).
- */
 export function MusicUploadForm({ onDone }: { onDone?: () => void }) {
   const { refreshTracks, upsertTrack } = useMusic();
 
@@ -62,7 +58,7 @@ export function MusicUploadForm({ onDone }: { onDone?: () => void }) {
 
       for (const [index, file] of files.entries()) {
         setUploadProgress({ currentIndex: index + 1, uploaded: index, total: files.length, fileName: file.name });
-        // Private bucket: upload returns the object path stored in `file_url`.
+
         const storagePath = await musicStorage.upload(file, user.id);
         const result = await createMusicTrackAction(
           titleFromFileName(file.name, index),
@@ -158,7 +154,6 @@ export default function MusicLibrary() {
   const [clearingStale, setClearingStale] = useState(false);
   const [uploadSheetOpen, setUploadSheetOpen] = useState(false);
 
-  // Mobile FAB -> bottom-sheet uploader (desktop keeps the sidebar panel)
   useMobileAction(
     'composer:music',
     useCallback(() => setUploadSheetOpen(true), []),
@@ -171,7 +166,7 @@ export default function MusicLibrary() {
       if (currentTrack?.id === trackId) {
         stop();
       }
-      // Vanish instantly; server refresh confirms (restores on failure).
+
       removeTrack(trackId);
 
       const result = await deleteMusicTrackAction(trackId);
@@ -207,7 +202,7 @@ export default function MusicLibrary() {
 
   return (
     <div className="music-layout">
-      {/* Desktop sidebar — hidden on mobile, replaced by the 🎵 FAB bottom-sheet */}
+
       <div className="panel hide-mobile">
         <div className="panel-title">☁️ Upload Track</div>
         <MusicUploadForm />
